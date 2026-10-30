@@ -96,6 +96,42 @@ function intVal(s, dflt) {
 
 function lower(s) { return String(s).toLowerCase(); }
 
+/* --------------------------------------------------------------------- log */
+/* Every run is written to logs\session-*.log: if the game dies with an internal
+   error, that file shows what was patched, what exactly was launched and when
+   the files were restored. */
+
+var LOG_PATH = "";
+
+function logStamp() {
+  var d = new Date();
+  function two(n) { return (n < 10 ? "0" : "") + n; }
+  return d.getFullYear() + two(d.getMonth() + 1) + two(d.getDate()) + "-" +
+         two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds());
+}
+
+function startLog() {
+  try {
+    var dir = join(MOD_DIR, "logs");
+    ensureDir(dir);
+    LOG_PATH = join(dir, "session-" + logStamp() + ".log");
+    writeLines(LOG_PATH, ["Red Alert 2 Sandbox Mod - session log",
+                          "started: " + new Date().toString(), ""]);
+    writeLines(join(dir, "last.txt"), [LOG_PATH]);
+  } catch (e) {
+    LOG_PATH = "";
+  }
+}
+
+function appendLog(line) {
+  if (LOG_PATH === "") { return; }
+  try {
+    var ts = fso.OpenTextFile(LOG_PATH, 8, true); /* ForAppending, create */
+    ts.WriteLine(line);
+    ts.Close();
+  } catch (e) { }
+}
+
 /* --------------------------------------------------------------- ini engine */
 
 /* Returns [headerIndex, endIndex) of a section, or null. */
@@ -705,6 +741,60 @@ function findExe(gdir, gameKey) {
   return null;
 }
 
+/* The Steam build ships small DRM-wrapped launchers next to the real games:
+   Ra2.exe -> game.exe (Red Alert 2), RA2MD.exe -> gamemd.exe (Yuri's Revenge).
+   A launcher starts the game and exits at once, so waiting for the launcher is
+   not the same as waiting for the game. We therefore run the real executable. */
+var LAUNCHERS = { "ra2.exe": ["game.exe"], "ra2md.exe": ["gamemd.exe"] };
+
+function firstToken(cmdLine) {
+  var s = trim(cmdLine);
+  if (s.charAt(0) === '"') {
+    var end = s.indexOf('"', 1);
+    return end > 0 ? s.substring(1, end) : s.substring(1);
+  }
+  var sp = s.indexOf(" ");
+  return sp > 0 ? s.substring(0, sp) : s;
+}
+
+function baseName(path) {
+  var s = String(path).replace(/^.*[\\\/]/, "");
+  return lower(s);
+}
+
+/* Returns a replacement command line (the real game exe) or null. */
+function resolveLauncher(gdir, cmdLine) {
+  var exe = firstToken(cmdLine);
+  var wants = LAUNCHERS[baseName(exe)];
+  if (!wants) { return null; }
+  for (var i = 0; i < wants.length; i++) {
+    var candidate = join(gdir, wants[i]);
+    if (exists(candidate)) { return '"' + candidate + '"'; }
+  }
+  return null;
+}
+
+/* Is a game process still alive? Used when the game was started indirectly. */
+function gameProcessAlive() {
+  try {
+    var wmi = GetObject("winmgmts:\\\\.\\root\\cimv2");
+    var col = wmi.ExecQuery("SELECT Name FROM Win32_Process WHERE Name='gamemd.exe' OR Name='game.exe'");
+    return (col.Count > 0);
+  } catch (e) {
+    return false;
+  }
+}
+
+function waitForGameExit(log, maxMinutes) {
+  if (!gameProcessAlive()) { return; }
+  log("\u0418\u0433\u0440\u0430 \u0435\u0449\u0451 \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442 (\u0437\u0430\u043F\u0443\u0449\u0435\u043D\u0430 \u0447\u0435\u0440\u0435\u0437 \u043B\u0430\u0443\u043D\u0447\u0435\u0440) \u2014 \u0436\u0434\u0443 \u0435\u0451 \u0437\u0430\u043A\u0440\u044B\u0442\u0438\u044F, \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043D\u0435 \u0442\u0440\u043E\u0433\u0430\u044E...");
+  var waited = 0;
+  while (gameProcessAlive() && waited < maxMinutes * 30) {
+    WScript.Sleep(2000);
+    waited++;
+  }
+}
+
 function runAndWait(gdir, cmdLine) {
   var oldDir = sh.CurrentDirectory;
   try { sh.CurrentDirectory = gdir; } catch (e) {}
@@ -718,19 +808,25 @@ function sandboxSession(cfg, cmdLine, log) {
   if (!r.ok) { return 1; }
   log("");
   log("\u0417\u0430\u043F\u0443\u0441\u043A: " + cmdLine);
-  if (lower(cmdLine).indexOf("ra2md.exe") >= 0 || lower(cmdLine).indexOf("ra2.exe") >= 0) {
-    log("\u0412\u043D\u0438\u043C\u0430\u043D\u0438\u0435: Steam \u043F\u0435\u0440\u0435\u0434\u0430\u043B \u043B\u0430\u0443\u043D\u0447\u0435\u0440 ra2(md).exe, \u0430 \u043D\u0435 \u0441\u0430\u043C\u0443 \u0438\u0433\u0440\u0443. \u0415\u0441\u043B\u0438 \u0438\u0433\u0440\u0430 \u043F\u0430\u0434\u0430\u0435\u0442");
-    log("\u0441 'internal error', \u0432\u043F\u0438\u0448\u0438\u0442\u0435 \u0432 \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B \u0437\u0430\u043F\u0443\u0441\u043A\u0430 \u043F\u0443\u0442\u044C \u043A gamemd.exe / game.exe.");
+
+  var real = resolveLauncher(r.dir, cmdLine);
+  if (real !== null) {
+    log("Steam \u043F\u0435\u0440\u0435\u0434\u0430\u043B \u043B\u0430\u0443\u043D\u0447\u0435\u0440 (" + fso.GetFileName(firstToken(cmdLine)) + "), \u0430 \u043E\u043D \u0437\u0430\u043F\u0443\u0441\u043A\u0430\u0435\u0442 \u0438\u0433\u0440\u0443 \u0438");
+    log("\u0441\u0440\u0430\u0437\u0443 \u0437\u0430\u043A\u0440\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u2014 \u0438\u0437-\u0437\u0430 \u044D\u0442\u043E\u0433\u043E \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043C\u043E\u0433\u043B\u0438 \u043E\u0442\u043A\u0430\u0442\u044B\u0432\u0430\u0442\u044C\u0441\u044F \u043F\u0440\u044F\u043C\u043E \u0432\u043E \u0432\u0440\u0435\u043C\u044F \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0438.");
+    log("\u0417\u0430\u043F\u0443\u0441\u043A\u0430\u044E \u0441\u0430\u043C\u0443 \u0438\u0433\u0440\u0443: " + real);
+    cmdLine = real;
   }
   log("");
   log("\u0418\u0433\u0440\u0430 \u0437\u0430\u043F\u0443\u0449\u0435\u043D\u0430. \u041E\u043A\u043D\u043E \u043D\u0435 \u0437\u0430\u043A\u0440\u044B\u0432\u0430\u0439\u0442\u0435: \u043F\u043E\u0441\u043B\u0435 \u0432\u044B\u0445\u043E\u0434\u0430 \u0444\u0430\u0439\u043B\u044B \u0438\u0433\u0440\u044B \u0431\u0443\u0434\u0443\u0442 \u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0435\u043D\u044B \u0432 \u0438\u0441\u0445\u043E\u0434\u043D\u043E\u0435 \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435.");
   log("");
   var rc = runAndWait(r.dir, cmdLine);
+  waitForGameExit(log, 480);
   var st = restore(log, true);
   log("");
   log("\u0418\u0433\u0440\u0430 \u0437\u0430\u043A\u0440\u044B\u0442\u0430 (\u043A\u043E\u0434 " + rc + "). \u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043E \u0444\u0430\u0439\u043B\u043E\u0432: " + st.restored +
       ", \u0443\u0434\u0430\u043B\u0435\u043D\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u044B\u0445: " + st.removed + ".");
   log("\u0418\u0433\u0440\u043E\u0432\u0430\u044F \u043F\u0430\u043F\u043A\u0430 \u0441\u043D\u043E\u0432\u0430 \u0432 \u0432\u0430\u043D\u0438\u043B\u044C\u043D\u043E\u043C \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0438.");
+  if (LOG_PATH !== "") { log("\u041B\u043E\u0433 \u044D\u0442\u043E\u0439 \u0441\u0435\u0441\u0441\u0438\u0438: " + LOG_PATH); }
   if (rc !== 0) {
     log("");
     log("\u041A\u043E\u0434 \u0432\u043E\u0437\u0432\u0440\u0430\u0442\u0430 \u043D\u0435 \u043D\u043E\u043B\u044C \u2014 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u0438\u0433\u0440\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B\u0430\u0441\u044C \u0441 \u043E\u0448\u0438\u0431\u043A\u043E\u0439.");
@@ -828,6 +924,9 @@ function diagnostics(log) {
   } else {
     log("\u0418\u0442\u043E\u0433: \u0435\u0441\u0442\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B, \u0441\u043C. \u0441\u0442\u0440\u043E\u043A\u0438 \u0432\u044B\u0448\u0435.");
   }
+  var lastLog = lastLogFile();
+  if (lastLog !== "") { log("\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 \u043B\u043E\u0433: " + lastLog); }
+
   log("");
   log("\u0415\u0441\u043B\u0438 \u0438\u0433\u0440\u0430 \u043F\u0430\u0434\u0430\u0435\u0442 \u0441 'internal error', \u0430 \u0437\u0434\u0435\u0441\u044C \u0432\u0441\u0451 \u0437\u0435\u043B\u0451\u043D\u043E\u0435 \u2014 \u0437\u043D\u0430\u0447\u0438\u0442 \u043D\u0435 \u0441\u043E\u0432\u043F\u0430\u043B\u0430");
   log("\u0432\u0435\u0440\u0441\u0438\u044F \u0431\u0430\u0437\u043E\u0432\u043E\u0433\u043E \u0444\u0430\u0439\u043B\u0430 \u043F\u0440\u0430\u0432\u0438\u043B. \u041F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u0440\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A none (\u043C\u0435\u043D\u044E, \u043F\u0443\u043D\u043A\u0442 23):");
@@ -835,6 +934,17 @@ function diagnostics(log) {
   log("  - \u0441 none \u0442\u043E\u0436\u0435 \u043F\u0430\u0434\u0430\u0435\u0442   -> \u0431\u0430\u0437\u043E\u0432\u044B\u0439 \u0444\u0430\u0439\u043B \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u044D\u0442\u043E\u0439 \u0441\u0431\u043E\u0440\u043A\u0435 \u0438\u0433\u0440\u044B,");
   log("    \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 Target=yr (\u0438\u043B\u0438 ra2) \u0438 \u0438\u0433\u0440\u0430\u0439\u0442\u0435 \u0432\u043E \u0432\u0442\u043E\u0440\u0443\u044E \u0438\u0433\u0440\u0443 \u0432\u0430\u043D\u0438\u043B\u044C\u043D\u043E.");
   return ok ? 0 : 1;
+}
+
+function lastLogFile() {
+  var pointer = join(join(MOD_DIR, "logs"), "last.txt");
+  if (!exists(pointer)) { return ""; }
+  try {
+    var lines = readLines(pointer);
+    return lines.length > 0 ? trim(lines[0]) : "";
+  } catch (e) {
+    return "";
+  }
 }
 
 function countSections(lines) {
@@ -976,7 +1086,12 @@ function play(cfg, which, log) {
 /* ---------------------------------------------------------------------- main */
 
 function main() {
-  var log = function (s) { WScript.Echo(s); };
+  startLog();
+  var log = function (s) {
+    WScript.Echo(s);
+    appendLog(s);
+  };
+  if (LOG_PATH !== "") { appendLog("game dir: " + gameDir(loadCfg())); }
   var arg = "";
   if (WScript.Arguments.length > 0) { arg = lower(WScript.Arguments(0)); }
 

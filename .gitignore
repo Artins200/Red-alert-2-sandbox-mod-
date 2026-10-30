@@ -2,8 +2,15 @@
 SandboxMod/backup/
 SandboxMod/state/
 SandboxMod/config/sandbox.cfg
+SandboxMod/logs/
 
 # OS junk
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# game binaries: they belong to the game install, never ship them in the repo
+/gamemd.exe
+/game.exe
+/Ra2.exe
+/RA2MD.exe
