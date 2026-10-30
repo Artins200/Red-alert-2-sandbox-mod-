@@ -160,6 +160,7 @@ var DEFAULTS = {
   AIPlayers:       "2",
   AIDifficulty:    "2",
   CarpetNuke:      "6",         /* LineMultiplier of the nuke superweapon (BigBoom) */
+  Patches:         "full",      /* full | safe | none - how much to patch (for bug hunting) */
   GameDir:         ""           /* optional override */
 };
 
@@ -224,7 +225,7 @@ function saveCfg(cfg) {
                "RevealMap", "BigBoom", "BuildSpeed", "SellRefund", "FairAI",
                "Money", "UnitCount", "TechLevel", "GameSpeed", "Crates",
                "ShortGame", "FogOfWar", "AIPlayers", "AIDifficulty", "CarpetNuke",
-               "GameDir"];
+               "Patches", "GameDir"];
   var out = [];
   out.push("; Red Alert 2 Sandbox Mod - settings");
   out.push("; Can be edited by hand or from the mod menu (SandboxMod.bat).");
@@ -254,6 +255,10 @@ function buildSpeedValue(mode) {
 function applyPatches(lines, game, cfg) {
   var warn = [];
   var i;
+  var mode = lower(trim(cfg.Patches));
+  if (mode === "" ) { mode = "full"; }
+  if (mode === "none") { return warn; }        /* test run: base rules, no edits */
+  var safeOnly = (mode === "safe");            /* only value swaps, no flags/inserts */
 
   function set(sec, key, val) {
     if (!iniSet(lines, sec, key, val, false)) {
@@ -295,7 +300,7 @@ function applyPatches(lines, game, cfg) {
   }
 
   /* --- 5. bigger, prettier explosions ----------------------------------- */
-  if (lower(cfg.BigBoom) === "yes") {
+  if (!safeOnly && lower(cfg.BigBoom) === "yes") {
     setIfPresent("NUKE", "CellSpread", "14");
     setIfPresent("NukePayload", "Damage", "1200");
     setIfPresent("NukePayload", "RadLevel", "800");
@@ -306,10 +311,10 @@ function applyPatches(lines, game, cfg) {
   }
 
   /* --- 6. reveal the whole map ------------------------------------------ */
-  if (lower(cfg.RevealMap) === "yes") {
+  if (!safeOnly && lower(cfg.RevealMap) === "yes") {
     set("MultiplayerDialogSettings", "Shroud", "no");
     setIfPresent("General", "ShroudGrow", "no");
-  } else {
+  } else if (!safeOnly) {
     setIfPresent("MultiplayerDialogSettings", "Shroud", "yes");
   }
 
@@ -323,6 +328,7 @@ function applyPatches(lines, game, cfg) {
   }
 
   /* --- 9. skirmish defaults --------------------------------------------- */
+  if (!safeOnly) {
   var money = String(intVal(cfg.Money, 40000));
   setIfPresent("MultiplayerDialogSettings", "MinMoney", money);
   setIfPresent("MultiplayerDialogSettings", "Money", money);
@@ -343,9 +349,10 @@ function applyPatches(lines, game, cfg) {
   }
   setIfPresent("MultiplayerDialogSettings", "ShortGame", lower(cfg.ShortGame) === "yes" ? "yes" : "no");
   setIfPresent("MultiplayerDialogSettings", "FogOfWar", lower(cfg.FogOfWar) === "yes" ? "yes" : "no");
+  }
 
   /* --- 10. honest AI (no money cheating) -------------------------------- */
-  if (lower(cfg.FairAI) === "yes") {
+  if (!safeOnly && lower(cfg.FairAI) === "yes") {
     setIfPresent("General", "MultiplayerAICM", "100,100,100");
     setIfPresent("General", "AIVirtualPurifiers", "0,0,0");
   }
@@ -408,6 +415,11 @@ function prepare(cfg, log) {
   for (i = 0; i < games.length; i++) {
     g = games[i];
     var src = join(RULES_DIR, g.source);
+    var custom = join(join(RULES_DIR, "custom"), g.source);
+    if (exists(custom)) {
+      src = custom;
+      log("  " + g.label + ": \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F \u0441\u0432\u043E\u0439 \u0431\u0430\u0437\u043E\u0432\u044B\u0439 \u0444\u0430\u0439\u043B rules\\custom\\" + g.source);
+    }
     if (!exists(src)) {
       log("\u0412\u043D\u0438\u043C\u0430\u043D\u0438\u0435: \u043D\u0435\u0442 \u0431\u0430\u0437\u043E\u0432\u043E\u0433\u043E \u0444\u0430\u0439\u043B\u0430 " + src + " (\u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u044E " + g.label + ")");
       continue;
@@ -593,17 +605,45 @@ function sandboxSession(cfg, cmdLine, log) {
   var r = prepare(cfg, log);
   if (!r.ok) { return 1; }
   log("");
+  log("\u0417\u0430\u043F\u0443\u0441\u043A: " + cmdLine);
+  if (lower(cmdLine).indexOf("ra2md.exe") >= 0 || lower(cmdLine).indexOf("ra2.exe") >= 0) {
+    log("\u0412\u043D\u0438\u043C\u0430\u043D\u0438\u0435: Steam \u043F\u0435\u0440\u0435\u0434\u0430\u043B \u043B\u0430\u0443\u043D\u0447\u0435\u0440 ra2(md).exe, \u0430 \u043D\u0435 \u0441\u0430\u043C\u0443 \u0438\u0433\u0440\u0443. \u0415\u0441\u043B\u0438 \u0438\u0433\u0440\u0430 \u043F\u0430\u0434\u0430\u0435\u0442");
+    log("\u0441 'internal error', \u0432\u043F\u0438\u0448\u0438\u0442\u0435 \u0432 \u043F\u0430\u0440\u0430\u043C\u0435\u0442\u0440\u044B \u0437\u0430\u043F\u0443\u0441\u043A\u0430 \u043F\u0443\u0442\u044C \u043A gamemd.exe / game.exe.");
+  }
+  log("");
   log("\u0418\u0433\u0440\u0430 \u0437\u0430\u043F\u0443\u0449\u0435\u043D\u0430. \u041E\u043A\u043D\u043E \u043D\u0435 \u0437\u0430\u043A\u0440\u044B\u0432\u0430\u0439\u0442\u0435: \u043F\u043E\u0441\u043B\u0435 \u0432\u044B\u0445\u043E\u0434\u0430 \u0444\u0430\u0439\u043B\u044B \u0438\u0433\u0440\u044B \u0431\u0443\u0434\u0443\u0442 \u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0435\u043D\u044B \u0432 \u0438\u0441\u0445\u043E\u0434\u043D\u043E\u0435 \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435.");
   log("");
-  runAndWait(r.dir, cmdLine);
+  var rc = runAndWait(r.dir, cmdLine);
   var st = restore(log, true);
   log("");
-  log("\u0418\u0433\u0440\u0430 \u0437\u0430\u043A\u0440\u044B\u0442\u0430. \u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043E \u0444\u0430\u0439\u043B\u043E\u0432: " + st.restored + ", \u0443\u0434\u0430\u043B\u0435\u043D\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u044B\u0445: " + st.removed + ".");
+  log("\u0418\u0433\u0440\u0430 \u0437\u0430\u043A\u0440\u044B\u0442\u0430 (\u043A\u043E\u0434 " + rc + "). \u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043E \u0444\u0430\u0439\u043B\u043E\u0432: " + st.restored +
+      ", \u0443\u0434\u0430\u043B\u0435\u043D\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u044B\u0445: " + st.removed + ".");
   log("\u0418\u0433\u0440\u043E\u0432\u0430\u044F \u043F\u0430\u043F\u043A\u0430 \u0441\u043D\u043E\u0432\u0430 \u0432 \u0432\u0430\u043D\u0438\u043B\u044C\u043D\u043E\u043C \u0441\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0438.");
+  if (rc !== 0) {
+    log("");
+    log("\u041A\u043E\u0434 \u0432\u043E\u0437\u0432\u0440\u0430\u0442\u0430 \u043D\u0435 \u043D\u043E\u043B\u044C \u2014 \u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u0438\u0433\u0440\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043B\u0430\u0441\u044C \u0441 \u043E\u0448\u0438\u0431\u043A\u043E\u0439.");
+    log("\u0427\u0442\u043E \u0434\u0435\u043B\u0430\u0442\u044C: \u0432 \u043C\u0435\u043D\u044E \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 23) \u0420\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A -> none \u0438 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u0441\u043D\u043E\u0432\u0430.");
+    log("  * \u043E\u0448\u0438\u0431\u043A\u0430 \u043E\u0441\u0442\u0430\u043B\u0430\u0441\u044C  -> \u0434\u0435\u043B\u043E \u043D\u0435 \u0432 \u043F\u0430\u0442\u0447\u0430\u0445, \u0430 \u0432 \u0431\u0430\u0437\u043E\u0432\u043E\u043C \u0444\u0430\u0439\u043B\u0435 \u043F\u0440\u0430\u0432\u0438\u043B / \u0441\u0430\u043C\u043E\u0439 \u0438\u0433\u0440\u0435;");
+    log("  * \u043E\u0448\u0438\u0431\u043A\u0438 \u043D\u0435\u0442       -> \u043F\u0430\u0442\u0447\u0438, \u0441\u0443\u0437\u044C\u0442\u0435 \u0438\u0445 \u0440\u0435\u0436\u0438\u043C\u043E\u043C safe \u0438 \u043E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u043F\u0443\u043D\u043A\u0442\u044B 8-12.");
+  }
   return 0;
 }
 
 /* ---------------------------------------------------------------- diagnostics */
+
+var REQUIRED_SECTIONS = ["General", "MultiplayerDialogSettings", "BuildingTypes",
+  "InfantryTypes", "VehicleTypes", "AircraftTypes", "Warheads", "SuperWeaponTypes",
+  "AudioVisual", "AI", "Animations", "OverlayTypes", "TerrainTypes"];
+
+function fileVersion(path) {
+  try {
+    var ns = sh.NameSpace(fso.GetParentFolderName(path));
+    var item = ns.ParseName(fso.GetFileName(path));
+    if (!item) { return ""; }
+    var v = item.ExtendedProperty("FileVersion");
+    return v ? String(v) : "";
+  } catch (e) { return ""; }
+}
 
 function diagnostics(log) {
   var cfg = loadCfg();
@@ -611,35 +651,86 @@ function diagnostics(log) {
   var ok = true;
   log("\u0414\u0438\u0430\u0433\u043D\u043E\u0441\u0442\u0438\u043A\u0430 Red Alert 2 Sandbox Mod");
   log("-----------------------------------");
-  log("\u041F\u0430\u043F\u043A\u0430 \u043C\u043E\u0434\u0430 : " + MOD_DIR);
-  log("\u041F\u0430\u043F\u043A\u0430 \u0438\u0433\u0440\u044B : " + gdir);
-  log("\u0424\u0430\u0439\u043B \u043F\u0440\u0430\u0432\u0438\u043B: " + (dirExists(RULES_DIR) ? RULES_DIR : "\u041D\u0415 \u041D\u0410\u0419\u0414\u0415\u041D"));
+  log("\u041F\u0430\u043F\u043A\u0430 \u043C\u043E\u0434\u0430  : " + MOD_DIR);
+  log("\u041F\u0430\u043F\u043A\u0430 \u0438\u0433\u0440\u044B  : " + gdir);
+  log("\u0420\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A: " + cfg.Patches);
+  log("\u0426\u0435\u043B\u044C        : " + cfg.Target);
+  log("\u0424\u0430\u0439\u043B \u043F\u0440\u0430\u0432\u0438\u043B : " + (dirExists(RULES_DIR) ? RULES_DIR : "\u041D\u0415 \u041D\u0410\u0419\u0414\u0415\u041D"));
   ok = ok && dirExists(RULES_DIR);
 
   var keys = ["yr", "ra2"];
   for (var i = 0; i < keys.length; i++) {
     var g = GAMES[keys[i]];
     var src = join(RULES_DIR, g.source);
+    if (exists(join(join(RULES_DIR, "custom"), g.source))) {
+      src = join(join(RULES_DIR, "custom"), g.source);
+    }
     if (!exists(src)) { log(g.label + ": \u043D\u0435\u0442 " + g.source); ok = false; continue; }
     var lines = readLines(src);
+
+    /* 1. is this really a complete rules file of the right game? */
+    var missing = [];
+    for (var r = 0; r < REQUIRED_SECTIONS.length; r++) {
+      if (iniFindSection(lines, REQUIRED_SECTIONS[r]) === null) { missing.push(REQUIRED_SECTIONS[r]); }
+    }
+    var name = iniGet(lines, "General", "Name");
     var warn = applyPatches(lines, g, cfg);
-    log(g.label + ": " + g.source + " -> " + lines.length + " \u0441\u0442\u0440\u043E\u043A, \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0439: " + warn.length);
-    for (var w = 0; w < warn.length; w++) { log("   " + warn[w]); ok = false; }
+
+    log("");
+    log(g.label + " (" + g.source + ")");
+    log("  \u0441\u0442\u0440\u043E\u043A \u0432 \u0431\u0430\u0437\u043E\u0432\u043E\u043C \u0444\u0430\u0439\u043B\u0435: " + lines.length + ", \u0441\u0435\u043A\u0446\u0438\u0439: " + countSections(lines));
+    log("  \u0438\u043C\u044F \u043F\u0440\u0430\u0432\u0438\u043B: " + (name === null ? "\u043D\u0435\u0442 [General] Name" : name));
+    if (missing.length > 0) {
+      log("  \u041E\u0422\u0421\u0423\u0422\u0421\u0422\u0412\u0423\u042E\u0422 \u0441\u0435\u043A\u0446\u0438\u0438: " + missing.join(", "));
+      ok = false;
+    } else {
+      log("  \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0435 \u0441\u0435\u043A\u0446\u0438\u0438: \u0432\u0441\u0435 \u043D\u0430 \u043C\u0435\u0441\u0442\u0435");
+    }
+    if (warn.length > 0) {
+      log("  \u043F\u0440\u0430\u0432\u043A\u0438 \u043D\u0435 \u043F\u0440\u0438\u043C\u0435\u043D\u0438\u043B\u0438\u0441\u044C: " + warn.length);
+      for (var w = 0; w < warn.length; w++) { log("   " + warn[w]); ok = false; }
+    } else {
+      log("  \u043F\u0440\u0430\u0432\u043A\u0438 \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u044E\u0442\u0441\u044F \u0431\u0435\u0437 \u043E\u0448\u0438\u0431\u043E\u043A");
+    }
   }
 
   var exeYr = findExe(gdir, "yr");
   var exeRa2 = findExe(gdir, "ra2");
-  log("gamemd.exe : " + (exeYr ? "\u043D\u0430\u0439\u0434\u0435\u043D" : "\u043D\u0435\u0442"));
-  log("game.exe   : " + (exeRa2 ? "\u043D\u0430\u0439\u0434\u0435\u043D" : "\u043D\u0435\u0442"));
+  log("");
+  log("gamemd.exe : " + (exeYr ? "\u043D\u0430\u0439\u0434\u0435\u043D, \u0432\u0435\u0440\u0441\u0438\u044F " + (fileVersion(exeYr) || "?") : "\u043D\u0435\u0442"));
+  log("game.exe   : " + (exeRa2 ? "\u043D\u0430\u0439\u0434\u0435\u043D, \u0432\u0435\u0440\u0441\u0438\u044F " + (fileVersion(exeRa2) || "?") : "\u043D\u0435\u0442"));
   if (!exeYr && !exeRa2) { ok = false; }
+
+  var iniYr = findSettingsIni(gdir, "RA2MD.INI");
+  var iniRa2 = findSettingsIni(gdir, "RA2.INI");
+  log("RA2MD.INI  : " + (iniYr ? "\u0435\u0441\u0442\u044C" : "\u043D\u0435\u0442"));
+  log("RA2.INI    : " + (iniRa2 ? "\u0435\u0441\u0442\u044C" : "\u043D\u0435\u0442"));
 
   var probe = join(gdir, ".sandbox_write_test");
   try { writeLines(probe, ["x"]); deleteFile(probe); log("\u0417\u0430\u043F\u0438\u0441\u044C \u0432 \u043F\u0430\u043F\u043A\u0443 \u0438\u0433\u0440\u044B: ok"); }
   catch (e) { log("\u0417\u0430\u043F\u0438\u0441\u044C \u0432 \u043F\u0430\u043F\u043A\u0443 \u0438\u0433\u0440\u044B: \u041D\u0415\u0422 \u041F\u0420\u0410\u0412"); ok = false; }
 
   log("");
-  log(ok ? "\u0418\u0442\u043E\u0433: \u0432\u0441\u0451 \u043D\u0430 \u043C\u0435\u0441\u0442\u0435, \u043C\u043E\u0436\u043D\u043E \u0438\u0433\u0440\u0430\u0442\u044C." : "\u0418\u0442\u043E\u0433: \u0435\u0441\u0442\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B, \u0441\u043C. \u0441\u0442\u0440\u043E\u043A\u0438 \u0432\u044B\u0448\u0435.");
+  if (ok) {
+    log("\u0418\u0442\u043E\u0433: \u0432\u0441\u0451 \u043D\u0430 \u043C\u0435\u0441\u0442\u0435, \u043C\u043E\u0436\u043D\u043E \u0438\u0433\u0440\u0430\u0442\u044C.");
+  } else {
+    log("\u0418\u0442\u043E\u0433: \u0435\u0441\u0442\u044C \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u044B, \u0441\u043C. \u0441\u0442\u0440\u043E\u043A\u0438 \u0432\u044B\u0448\u0435.");
+  }
+  log("");
+  log("\u0415\u0441\u043B\u0438 \u0438\u0433\u0440\u0430 \u043F\u0430\u0434\u0430\u0435\u0442 \u0441 'internal error', \u0430 \u0437\u0434\u0435\u0441\u044C \u0432\u0441\u0451 \u0437\u0435\u043B\u0451\u043D\u043E\u0435 \u2014 \u0437\u043D\u0430\u0447\u0438\u0442 \u043D\u0435 \u0441\u043E\u0432\u043F\u0430\u043B\u0430");
+  log("\u0432\u0435\u0440\u0441\u0438\u044F \u0431\u0430\u0437\u043E\u0432\u043E\u0433\u043E \u0444\u0430\u0439\u043B\u0430 \u043F\u0440\u0430\u0432\u0438\u043B. \u041F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u0440\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A none (\u043C\u0435\u043D\u044E, \u043F\u0443\u043D\u043A\u0442 23):");
+  log("  - \u0441 none \u0438\u0433\u0440\u0430 \u0440\u0430\u0431\u043E\u0442\u0430\u0435\u0442 -> \u0432\u0438\u043D\u043E\u0432\u0430\u0442\u044B \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0435 \u043F\u0440\u0430\u0432\u043A\u0438, \u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 safe;");
+  log("  - \u0441 none \u0442\u043E\u0436\u0435 \u043F\u0430\u0434\u0430\u0435\u0442   -> \u0431\u0430\u0437\u043E\u0432\u044B\u0439 \u0444\u0430\u0439\u043B \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u044D\u0442\u043E\u0439 \u0441\u0431\u043E\u0440\u043A\u0435 \u0438\u0433\u0440\u044B,");
+  log("    \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 Target=yr (\u0438\u043B\u0438 ra2) \u0438 \u0438\u0433\u0440\u0430\u0439\u0442\u0435 \u0432\u043E \u0432\u0442\u043E\u0440\u0443\u044E \u0438\u0433\u0440\u0443 \u0432\u0430\u043D\u0438\u043B\u044C\u043D\u043E.");
   return ok ? 0 : 1;
+}
+
+function countSections(lines) {
+  var n = 0;
+  for (var i = 0; i < lines.length; i++) {
+    if (/^\s*\[/.test(lines[i])) { n++; }
+  }
+  return n;
 }
 
 /* ---------------------------------------------------------------- menu (UI) */
@@ -681,8 +772,15 @@ function menu(cfg, log) {
     log("-------------------------------------------------");
     log(" 21)  \u0414\u0438\u0430\u0433\u043D\u043E\u0441\u0442\u0438\u043A\u0430");
     log(" 22)  \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438");
+    log(" 23)  \u0420\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A (\u0434\u043B\u044F \u043E\u0442\u043B\u0430\u0434\u043A\u0438) ... " + cfg.Patches);
     log("  0)  \u0412\u044B\u0445\u043E\u0434");
     log("");
+    if (lower(cfg.Patches) === "safe") {
+      log("  ! \u0420\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A SAFE: \u0431\u0435\u0437 \u043E\u0442\u043A\u0440\u044B\u0442\u043E\u0439 \u043A\u0430\u0440\u0442\u044B, \u0418\u0418, \u0431\u043E\u043B\u044C\u0448\u0438\u0445 \u0432\u0437\u0440\u044B\u0432\u043E\u0432 \u0438 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043A \u0441\u043A\u0438\u0440\u043C\u0438\u0448\u0430.");
+    }
+    if (lower(cfg.Patches) === "none") {
+      log("  ! \u0420\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A NONE: \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043A\u043B\u0430\u0434\u0443\u0442\u0441\u044F \u043A\u0430\u043A \u0435\u0441\u0442\u044C, \u0411\u0415\u0417 \u043F\u0430\u0442\u0447\u0435\u0439 (\u0442\u0435\u0441\u0442 \u043D\u0430 \u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u043E\u0441\u0442\u044C).");
+    }
     log("  \u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0430: \u0441\u043A\u0438\u0440\u043C\u0438\u0448 -> \u0432\u044B\u0431\u043E\u0440 \u0431\u043E\u0442\u043E\u0432 \u0442\u0430\u043C \u0436\u0435, \u0433\u0434\u0435 \u0441\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C.");
     log("  \u0414\u0432\u0430 \u0431\u043E\u0442\u0430 \u0434\u0440\u0443\u0433 \u043F\u0440\u043E\u0442\u0438\u0432 \u0434\u0440\u0443\u0433\u0430: \u043F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 2 \u0418\u0418 + \u0441\u0435\u0431\u044F, \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435");
     log("  '\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432\u0441\u044E \u043A\u0430\u0440\u0442\u0443' \u0438 \u043D\u0435 \u0441\u0442\u0440\u043E\u0439\u0442\u0435 \u0431\u0430\u0437\u0443 - \u0431\u0443\u0434\u0435\u0442\u0435 \u043D\u0430\u0431\u043B\u044E\u0434\u0430\u0442\u0435\u043B\u0435\u043C.");
@@ -715,6 +813,7 @@ function menu(cfg, log) {
       case 20: cfg.CarpetNuke = cycle(cfg.CarpetNuke, ["1", "2", "4", "6", "8", "10"]); break;
       case 21: diagnostics(log); break;
       case 22: cfg = resetCfg(); break;
+      case 23: cfg.Patches = cycle(cfg.Patches, ["full", "safe", "none"]); break;
       case 0: running = false; break;
       default:
         log("\u041D\u0435 \u043F\u043E\u043D\u044F\u043B. \u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u043E\u043C\u0435\u0440 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430.");
