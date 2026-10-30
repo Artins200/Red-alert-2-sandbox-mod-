@@ -6,13 +6,13 @@
 ```ini
 [Sandbox]
 Target=both
-Superweapons=unlimited
+SandboxSW=player
 SWRecharge=instant
-Heroes=unlimited
-BonusBuildings=unlimited
+Heroes=normal
+BonusBuildings=normal
 RevealMap=yes
 BigBoom=yes
-BuildSpeed=instant
+BuildSpeed=normal
 SellRefund=100
 FairAI=yes
 Money=40000
@@ -26,20 +26,20 @@ AIPlayers=2
 AIDifficulty=2
 CarpetNuke=6
 Patches=full
-CloneSW=no
+KitCost=1500
 GameDir=
 ```
 
 | Ключ | Значения | По умолчанию | Что делает |
 |---|---|---|---|
 | `Target` | `both` / `yr` / `ra2` | `both` | для какой игры ставить правила. `both` — универсально, правильный файл подхватится при запуске |
-| `Superweapons` | `unlimited` / `normal` | `unlimited` | снять лимит постройки и расход энергии у супероружий |
-| `SWRecharge` | `instant` / `fast` / `normal` | `instant` | время зарядки супероружия: ~3 сек / 1 мин / как в оригинале |
-| `Heroes` | `unlimited` / `normal` | `unlimited` | Таня, Борис, Юрий Прайм без ограничения |
-| `BonusBuildings` | `unlimited` / `normal` | `unlimited` | обогатитель руды, промышленный завод, завод клонирования без ограничения |
+| `SandboxSW` | `player` / `all` / `off` | `player` | `player` — отдельные песочные супероружия, которые бот не строит (ванильные не трогаются); `all` — старый режим, плюшки и боту; `off` — не трогать супероружие вообще |
+| `SWRecharge` | `instant` / `fast` / `normal` | `instant` | время зарядки **песочных** супероружий: ~3 сек / 1 мин / как в оригинале |
+| `Heroes` | `unlimited` / `normal` | `normal` | Таня, Борис, Юрий Прайм без ограничения (достанется и ИИ, если он их строит) |
+| `BonusBuildings` | `unlimited` / `normal` | `normal` | обогатитель руды, промышленный завод, завод клонирования без ограничения |
 | `RevealMap` | `yes` / `no` | `yes` | снять туман войны на всей карте |
 | `BigBoom` | `yes` / `no` | `yes` | усиленные ядерные взрывы и ковровая бомбёжка |
-| `BuildSpeed` | `instant` / `fast` / `normal` | `instant` | скорость производства (`instant` — почти мгновенно) |
+| `BuildSpeed` | `instant` / `fast` / `normal` | `normal` | скорость производства. Параметр общий: при `instant` быстрее строит и ИИ, поэтому по умолчанию `normal` |
 | `SellRefund` | `100` / `50` | `100` | сколько процентов стоимости возвращается при продаже |
 | `FairAI` | `yes` / `no` | `yes` | убрать читерские деньги у ИИ (см. `BUGFIXES.md`) |
 | `Money` | число | `40000` | стартовые деньги в скирмише (10000 / 20000 / 40000 / 80000 / 100000) |
@@ -53,7 +53,7 @@ GameDir=
 | `AIDifficulty` | `0` / `1` / `2` | `2` | сложность ботов по умолчанию: 0 — легко, 1 — средне, 2 — brutal |
 | `CarpetNuke` | 1–10 | `6` | `LineMultiplier` у ядерного супероружия — «ширина» линии удара (в ванильных правилах 2) |
 | `Patches` | `full` / `safe` / `none` | `full` | сколько правок применять. `safe` — только лимиты и перезарядка супероружия; `none` — положить базовые правила без правок (тест на совместимость с вашей сборкой игры) |
-| `CloneSW` | `yes` / `no` | `no` | добавить по второму независимому комплекту каждого супероружия (обход лимита «одна зарядка на тип», см. `LIMITS.md`) |
+| `KitCost` | число | `1500` | цена песочных супероружий |
 | `GameDir` | путь | пусто | если папка мода лежит **не** внутри папки игры — укажите путь к игре здесь |
 
 ## Свой базовый файл правил

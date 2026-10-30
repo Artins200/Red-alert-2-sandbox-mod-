@@ -177,13 +177,13 @@ function iniSet(lines, section, key, value, onlyIfExists) {
 
 var DEFAULTS = {
   Target:          "both",      /* both | yr | ra2 */
-  Superweapons:    "unlimited", /* unlimited | normal */
+  SandboxSW:       "player",    /* player | all | off */
   SWRecharge:      "instant",   /* instant | fast | normal */
-  Heroes:          "unlimited", /* unlimited | normal */
-  BonusBuildings:  "unlimited", /* unlimited | normal */
+  Heroes:          "normal",    /* unlimited | normal */
+  BonusBuildings:  "normal",    /* unlimited | normal */
   RevealMap:       "yes",       /* yes | no */
   BigBoom:         "yes",       /* yes | no */
-  BuildSpeed:      "instant",   /* instant | fast | normal */
+  BuildSpeed:      "normal",    /* instant | fast | normal (affects the AI too) */
   SellRefund:      "100",       /* 100 | 50 */
   FairAI:          "yes",       /* yes | no */
   Money:           "40000",
@@ -197,7 +197,7 @@ var DEFAULTS = {
   AIDifficulty:    "2",
   CarpetNuke:      "6",         /* LineMultiplier of the nuke superweapon (BigBoom) */
   Patches:         "full",      /* full | safe | none - how much to patch (for bug hunting) */
-  CloneSW:         "no",        /* yes = add a second independent copy of every superweapon */
+  KitCost:         "1500",      /* cost of the sandbox superweapon buildings */
   GameDir:         ""           /* optional override */
 };
 
@@ -258,11 +258,11 @@ function loadCfg() {
 
 function saveCfg(cfg) {
   ensureDir(CFG_DIR);
-  var order = ["Target", "Superweapons", "SWRecharge", "Heroes", "BonusBuildings",
+  var order = ["Target", "SandboxSW", "SWRecharge", "Heroes", "BonusBuildings",
                "RevealMap", "BigBoom", "BuildSpeed", "SellRefund", "FairAI",
                "Money", "UnitCount", "TechLevel", "GameSpeed", "Crates",
                "ShortGame", "FogOfWar", "AIPlayers", "AIDifficulty", "CarpetNuke",
-               "Patches", "CloneSW", "GameDir"];
+               "Patches", "KitCost", "GameDir"];
   var out = [];
   out.push("; Red Alert 2 Sandbox Mod - settings");
   out.push("; Can be edited by hand or from the mod menu (SandboxMod.bat).");
@@ -306,20 +306,27 @@ function applyPatches(lines, game, cfg) {
     iniSet(lines, sec, key, val, true);
   }
 
-  /* --- 1. superweapon structures: no build limit, no power drain --------- */
-  if (lower(cfg.Superweapons) === "unlimited") {
+  /* --- 1/2. superweapons ------------------------------------------------- */
+  /* mode "player" (default): the vanilla superweapons stay exactly as they are,
+     so the AI keeps its normal one-charge-per-type behaviour, and the player
+     gets a separate sandbox set of superweapons that the AI never builds.
+     mode "all": the old behaviour - everybody gets instant unlimited toys.
+     mode "off": no superweapon changes at all.                              */
+  var swMode = lower(trim(cfg.SandboxSW));
+  if (swMode === "") { swMode = "player"; }
+  var rt = swRechargeValue(lower(cfg.SWRecharge));
+  if (rt === null) { rt = "0.05"; }
+
+  if (swMode === "all") {
     for (i = 0; i < game.swBuildings.length; i++) {
       set(game.swBuildings[i], "BuildLimit", "-1");
       setIfPresent(game.swBuildings[i], "Power", "0");
     }
-  }
-
-  /* --- 2. superweapon charge time ---------------------------------------- */
-  var rt = swRechargeValue(lower(cfg.SWRecharge));
-  if (rt !== null) {
     for (i = 0; i < game.swSpecials.length; i++) {
       set(game.swSpecials[i], "RechargeTime", rt);
     }
+  } else if (swMode === "player") {
+    installSandboxSuperweapons(lines, game, cfg, rt, warn);
   }
 
   /* --- 3. heroes --------------------------------------------------------- */
@@ -401,11 +408,6 @@ function applyPatches(lines, game, cfg) {
     setIfPresent("General", "AIVirtualPurifiers", "0,0,0");
   }
 
-  /* --- 11. extra superweapon types (one-per-type limit workaround) ------ */
-  if (!safeOnly && lower(cfg.CloneSW) === "yes") {
-    cloneSuperweapons(lines, game, cfg, warn);
-  }
-
   return warn;
 }
 
@@ -430,6 +432,15 @@ function setInBody(body, key, value, addIfMissing) {
   if (addIfMissing) { body.push(key + "=" + value); }
 }
 
+/* keep the art of the original: if the section already points somewhere with
+   Image=, reuse that value; otherwise point at the section's own art. */
+function ensureImage(body, ownName) {
+  for (var i = 0; i < body.length; i++) {
+    if (/^\s*Image\s*=/i.test(body[i])) { return; }
+  }
+  body.push("Image=" + ownName);
+}
+
 function listInfo(lines, listName) {
   var r = iniFindSection(lines, listName);
   if (r === null) { return null; }
@@ -445,18 +456,20 @@ function listInfo(lines, listName) {
   return { max: max, insertAt: insertAt };
 }
 
-function cloneSuperweapons(lines, game, cfg, warn) {
-  var inserts = [];   /* entries for [BuildingTypes] / [SuperWeaponTypes] */
-  var blocks = [];    /* text blocks appended at the end of the file */
+function installSandboxSuperweapons(lines, game, cfg, rt, warn) {
+  var inserts = [];
+  var blocks = [];
   var swList = listInfo(lines, "SuperWeaponTypes");
   var bList = listInfo(lines, "BuildingTypes");
+  var cost = intVal(cfg.KitCost, 1500);
   var made = 0;
 
   for (var i = 0; i < game.swBuildings.length; i++) {
     var name = game.swBuildings[i];
     var range = iniFindSection(lines, name);
-    if (range === null) { continue; }
-    var cloneName = name + "2";
+    if (range === null) { warn.push("\u043D\u0435\u0442 \u0441\u0435\u043A\u0446\u0438\u0438 [" + name + "]"); continue; }
+
+    var cloneName = name + "SB";
     if (iniFindSection(lines, cloneName) !== null) { continue; }
 
     var swType = null;
@@ -465,23 +478,27 @@ function cloneSuperweapons(lines, game, cfg, warn) {
       if (m) { swType = m[1]; break; }
     }
     if (swType === null) { continue; }
-    var cloneSW = swType + "2";
+
+    var cloneSW = swType + "SB";
     var swRange = iniFindSection(lines, swType);
 
-    /* clone of the building */
+    /* building: same art, same name, but the AI never builds it */
     var bBody = bodyOf(lines, range);
     setInBody(bBody, "SuperWeapon", cloneSW, true);
-    setInBody(bBody, "Image", name, false);       /* reuse vanilla graphics */
-    setInBody(bBody, "AIBuildThis", "no", true);  /* keep the AI sane */
+    ensureImage(bBody, name);
+    setInBody(bBody, "AIBuildThis", "no", true);
     setInBody(bBody, "BuildLimit", "-1", true);
     setInBody(bBody, "Power", "0", false);
+    setInBody(bBody, "Cost", String(cost), false);
+    setInBody(bBody, "Adjacent", "2", false);
 
-    /* clone of the superweapon type */
+    /* superweapon: instant recharge, own sidebar button */
     var swBody = [];
     if (swRange !== null) { swBody = bodyOf(lines, swRange); }
+    setInBody(swBody, "RechargeTime", rt, true);
 
     blocks.push("");
-    blocks.push("; ---- Sandbox Mod: extra superweapon, same art as " + name);
+    blocks.push("; ---- Sandbox Mod: player-only superweapon (the AI does not build it)");
     blocks.push("[" + cloneName + "]");
     for (var b = 0; b < bBody.length; b++) { blocks.push(bBody[b]); }
     blocks.push("");
@@ -499,12 +516,8 @@ function cloneSuperweapons(lines, game, cfg, warn) {
 
   if (made === 0) { return; }
 
-  /* insert list entries from the bottom of the file upwards, so the positions
-     computed above stay valid */
   inserts.sort(function (a, b) { return b.pos - a.pos; });
-  for (var k = 0; k < inserts.length; k++) {
-    lines.splice(inserts[k].pos, 0, inserts[k].text);
-  }
+  for (var k = 0; k < inserts.length; k++) { lines.splice(inserts[k].pos, 0, inserts[k].text); }
   for (var z = 0; z < blocks.length; z++) { lines.push(blocks[z]); }
 }
 
@@ -974,13 +987,13 @@ function menu(cfg, log) {
     log("  2) \u0418\u0433\u0440\u0430\u0442\u044C: Red Alert 2");
     log("  3) \u0418\u0433\u0440\u0430\u0442\u044C \u0442\u0430\u043A, \u043A\u0430\u043A \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D\u043E \u0432 Steam     <- Enter");
     log("-------------------------------------------------");
-    log("  4)  \u0421\u0443\u043F\u0435\u0440\u043E\u0440\u0443\u0436\u0438\u0435 \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u0430 ......... " + (lower(cfg.Superweapons) === "unlimited" ? "\u0414\u0410" : "\u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435"));
+    log("  4)  \u0421\u0443\u043F\u0435\u0440\u043E\u0440\u0443\u0436\u0438\u0435 \u043F\u0435\u0441\u043E\u0447\u043D\u0438\u0446\u044B .......... " + swModeLabel(cfg.SandboxSW));
     log("  5)  \u0417\u0430\u0440\u044F\u0434\u043A\u0430 \u0441\u0443\u043F\u0435\u0440\u043E\u0440\u0443\u0436\u0438\u044F ............ " + cfg.SWRecharge);
-    log("  6)  \u0413\u0435\u0440\u043E\u0438 \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u0430 ............... " + (lower(cfg.Heroes) === "unlimited" ? "\u0414\u0410" : "\u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435"));
-    log("  7)  \u0411\u043E\u043D\u0443\u0441\u043D\u044B\u0435 \u0437\u0434\u0430\u043D\u0438\u044F \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u0430 ..... " + (lower(cfg.BonusBuildings) === "unlimited" ? "\u0414\u0410" : "\u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435"));
+    log("  6)  \u0413\u0435\u0440\u043E\u0438 \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u0430 (\u0438 \u0431\u043E\u0442\u0443) ...... " + (lower(cfg.Heroes) === "unlimited" ? "\u0414\u0410" : "\u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435"));
+    log("  7)  \u0411\u043E\u043D\u0443\u0441\u043D\u044B\u0435 \u0437\u0434\u0430\u043D\u0438\u044F (\u0438 \u0431\u043E\u0442\u0443) ....... " + (lower(cfg.BonusBuildings) === "unlimited" ? "\u0414\u0410" : "\u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435"));
     log("  8)  \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432\u0441\u044E \u043A\u0430\u0440\u0442\u0443 .............. " + onOff(cfg.RevealMap));
     log("  9)  \u0411\u043E\u043B\u044C\u0448\u0438\u0435 \u0432\u0437\u0440\u044B\u0432\u044B / \u043A\u043E\u0432\u0440\u043E\u0432\u0430\u044F \u0431\u043E\u043C\u0431\u0451\u0436\u043A\u0430 " + onOff(cfg.BigBoom));
-    log(" 10)  \u0421\u043A\u043E\u0440\u043E\u0441\u0442\u044C \u0441\u0442\u0440\u043E\u0438\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430 ......... " + cfg.BuildSpeed);
+    log(" 10)  \u0421\u043A\u043E\u0440\u043E\u0441\u0442\u044C \u0441\u0442\u0440\u043E\u0438\u0442\u0435\u043B\u044C\u0441\u0442\u0432\u0430 ......... " + cfg.BuildSpeed + (lower(cfg.BuildSpeed) === "normal" ? "" : " (\u0438 \u0431\u043E\u0442\u0443)"));
     log(" 11)  \u0412\u043E\u0437\u0432\u0440\u0430\u0442 \u0434\u0435\u043D\u0435\u0433 \u043F\u0440\u0438 \u043F\u0440\u043E\u0434\u0430\u0436\u0435 ...... " + cfg.SellRefund + "%");
     log(" 12)  \u0427\u0435\u0441\u0442\u043D\u044B\u0439 \u0418\u0418 (\u0431\u0435\u0437 \u0447\u0438\u0442\u043E\u0432) ......... " + onOff(cfg.FairAI));
     log(" 13)  \u0414\u0435\u043D\u0435\u0433 \u043D\u0430 \u0441\u0442\u0430\u0440\u0442\u0435 ................ " + cfg.Money);
@@ -992,10 +1005,11 @@ function menu(cfg, log) {
     log(" 19)  \u0422\u0443\u043C\u0430\u043D \u0432\u043E\u0439\u043D\u044B .................... " + onOff(cfg.FogOfWar));
     log(" 20)  \u041B\u0438\u043D\u0438\u044F \u0443\u0434\u0430\u0440\u0430 (\u043A\u043E\u0432\u0440\u043E\u0432\u0430\u044F) ......... " + cfg.CarpetNuke);
     log("-------------------------------------------------");
+    log("-------------------------------------------------");
     log(" 21)  \u0414\u0438\u0430\u0433\u043D\u043E\u0441\u0442\u0438\u043A\u0430");
     log(" 22)  \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438");
     log(" 23)  \u0420\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A (\u0434\u043B\u044F \u043E\u0442\u043B\u0430\u0434\u043A\u0438) ... " + cfg.Patches);
-    log(" 24)  \u0412\u0442\u043E\u0440\u043E\u0439 \u043A\u043E\u043C\u043F\u043B\u0435\u043A\u0442 \u0441\u0443\u043F\u0435\u0440\u043E\u0440\u0443\u0436\u0438\u044F ... " + (lower(cfg.CloneSW) === "yes" ? "\u0414\u0410" : "\u043D\u0435\u0442"));
+    log(" 24)  \u041F\u0440\u0435\u0441\u0435\u0442: " + presetName(cfg));
     log("  0)  \u0412\u044B\u0445\u043E\u0434");
     log("");
     if (lower(cfg.Patches) === "safe") {
@@ -1005,6 +1019,8 @@ function menu(cfg, log) {
       log("  ! \u0420\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A NONE: \u043F\u0440\u0430\u0432\u0438\u043B\u0430 \u043A\u043B\u0430\u0434\u0443\u0442\u0441\u044F \u043A\u0430\u043A \u0435\u0441\u0442\u044C, \u0411\u0415\u0417 \u043F\u0430\u0442\u0447\u0435\u0439 (\u0442\u0435\u0441\u0442 \u043D\u0430 \u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u043E\u0441\u0442\u044C).");
     }
     log("  \u041F\u043E\u0434\u0441\u043A\u0430\u0437\u043A\u0430: \u0441\u043A\u0438\u0440\u043C\u0438\u0448 -> \u0432\u044B\u0431\u043E\u0440 \u0431\u043E\u0442\u043E\u0432 \u0442\u0430\u043C \u0436\u0435, \u0433\u0434\u0435 \u0441\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C.");
+    log("  \u041F\u0435\u0441\u043E\u0447\u043D\u044B\u0435 \u0441\u0443\u043F\u0435\u0440\u043E\u0440\u0443\u0436\u0438\u044F (\u043F\u0443\u043D\u043A\u0442 4 = '\u0442\u043E\u043B\u044C\u043A\u043E \u043C\u043D\u0435') \u0441\u0442\u0440\u043E\u044F\u0442\u0441\u044F \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E");
+    log("  \u043E\u0442 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 \u0438 \u0431\u043E\u0442 \u0438\u0445 \u043D\u0438\u043A\u043E\u0433\u0434\u0430 \u043D\u0435 \u0441\u0442\u0440\u043E\u0438\u0442 - \u0443 \u043D\u0435\u0433\u043E \u0432\u0441\u0451 \u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435.");
     log("  \u0414\u0432\u0430 \u0431\u043E\u0442\u0430 \u0434\u0440\u0443\u0433 \u043F\u0440\u043E\u0442\u0438\u0432 \u0434\u0440\u0443\u0433\u0430: \u043F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 2 \u0418\u0418 + \u0441\u0435\u0431\u044F, \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435");
     log("  '\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432\u0441\u044E \u043A\u0430\u0440\u0442\u0443' \u0438 \u043D\u0435 \u0441\u0442\u0440\u043E\u0439\u0442\u0435 \u0431\u0430\u0437\u0443 - \u0431\u0443\u0434\u0435\u0442\u0435 \u043D\u0430\u0431\u043B\u044E\u0434\u0430\u0442\u0435\u043B\u0435\u043C.");
     log("");
@@ -1017,7 +1033,7 @@ function menu(cfg, log) {
       case 1: if (play(cfg, "yr", log)) { return; } break;
       case 2: if (play(cfg, "ra2", log)) { return; } break;
       case 3: if (play(cfg, "auto", log)) { return; } break;
-      case 4: cfg.Superweapons = toggle(cfg.Superweapons, "unlimited", "normal"); break;
+      case 4: cfg.SandboxSW = cycle(cfg.SandboxSW, ["player", "all", "off"]); break;
       case 5: cfg.SWRecharge = cycle(cfg.SWRecharge, ["instant", "fast", "normal"]); break;
       case 6: cfg.Heroes = toggle(cfg.Heroes, "unlimited", "normal"); break;
       case 7: cfg.BonusBuildings = toggle(cfg.BonusBuildings, "unlimited", "normal"); break;
@@ -1037,13 +1053,76 @@ function menu(cfg, log) {
       case 21: diagnostics(log); break;
       case 22: cfg = resetCfg(); break;
       case 23: cfg.Patches = cycle(cfg.Patches, ["full", "safe", "none"]); break;
-      case 24: cfg.CloneSW = toggle(cfg.CloneSW, "yes", "no"); break;
+      case 24: applyPreset(cfg, cycle(presetKey(cfg), ["player", "all", "vanilla"])); break;
       case 0: running = false; break;
       default:
         log("\u041D\u0435 \u043F\u043E\u043D\u044F\u043B. \u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u043E\u043C\u0435\u0440 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430.");
     }
     saveCfg(cfg);
   }
+}
+
+function swModeLabel(v) {
+  var m = lower(v);
+  if (m === "all") { return "\u0432\u0441\u0435\u043C (\u0438 \u0431\u043E\u0442\u0443 \u0442\u043E\u0436\u0435)"; }
+  if (m === "off") { return "\u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435"; }
+  return "\u0442\u043E\u043B\u044C\u043A\u043E \u0438\u0433\u0440\u043E\u043A\u0443";
+}
+
+/* Presets: one keystroke instead of twelve toggles. */
+function applyPreset(cfg, key) {
+  if (key === "player") {
+    cfg.Patches = "full";
+    cfg.SandboxSW = "player";
+    cfg.SWRecharge = "instant";
+    cfg.KitCost = "1500";
+    cfg.RevealMap = "yes";
+    cfg.BigBoom = "yes";
+    cfg.CarpetNuke = "6";
+    cfg.BuildSpeed = "normal";
+    cfg.Heroes = "normal";
+    cfg.BonusBuildings = "normal";
+    cfg.SellRefund = "100";
+    cfg.FairAI = "yes";
+    cfg.Money = "40000";
+    cfg.UnitCount = "10";
+    cfg.TechLevel = "10";
+    cfg.GameSpeed = "1";
+    cfg.ShortGame = "no";
+    cfg.FogOfWar = "no";
+    cfg.AIPlayers = "2";
+    cfg.AIDifficulty = "2";
+    return;
+  }
+  if (key === "all") {
+    cfg.Patches = "full";
+    cfg.SandboxSW = "all";
+    cfg.SWRecharge = "instant";
+    cfg.RevealMap = "yes";
+    cfg.BigBoom = "yes";
+    cfg.CarpetNuke = "6";
+    cfg.BuildSpeed = "instant";
+    cfg.Heroes = "unlimited";
+    cfg.BonusBuildings = "unlimited";
+    cfg.SellRefund = "100";
+    cfg.FairAI = "no";
+    return;
+  }
+  /* vanilla: the mod steps aside completely */
+  cfg.Patches = "none";
+}
+
+function presetKey(cfg) {
+  if (lower(cfg.Patches) === "none") { return "vanilla"; }
+  if (lower(cfg.SandboxSW) === "all") { return "all"; }
+  return "player";
+}
+
+function presetName(cfg) {
+  var k = presetKey(cfg);
+  if (k === "vanilla") { return "\u0412\u0410\u041D\u0418\u041B\u042C (\u043C\u043E\u0434 \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D)"; }
+  if (k === "all") { return "\u0425\u0410\u0420\u0414\u041A\u041E\u0420 (\u043F\u043B\u044E\u0448\u043A\u0438 \u0432\u0441\u0435\u043C, \u0432\u043A\u043B\u044E\u0447\u0430\u044F \u0431\u043E\u0442\u0430)"; }
+  return "\u041F\u0415\u0421\u041E\u0427\u041D\u0418\u0426\u0410 \u0414\u041B\u042F \u0418\u0413\u0420\u041E\u041A\u0410";
 }
 
 function toggle(cur, a, b) { return lower(cur) === a ? b : a; }
