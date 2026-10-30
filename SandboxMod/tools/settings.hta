@@ -167,13 +167,19 @@
 </div>
 
 <div class="btns">
-  <button class="play" onclick="play('yr')">Сохранить и играть: Yuri's Revenge</button>
-  <button class="play" onclick="play('ra2')">Сохранить и играть: Red Alert 2</button>
+  <button class="play" onclick="play('yr')">Играть: Yuri's Revenge</button>
+  <button class="play" onclick="play('ra2')">Играть: Red Alert 2</button>
+  <button onclick="restart('yr')">Перезапустить YR с новыми настройками</button>
+  <button onclick="restart('ra2')">Перезапустить RA2</button>
   <button onclick="save(true)">Только сохранить</button>
   <button onclick="runTool('diag')">Диагностика</button>
+  <button onclick="openLog()">Показать лог</button>
   <button onclick="runTool('export')">Экспорт правил (recomp)</button>
   <button onclick="runTool('restore')">Вернуть файлы игры</button>
   <button onclick="window.close()">Закрыть</button>
+  <div class="hint">Правила читаются один раз, при старте игры: «Перезапустить» закрывает текущую
+  партию и запускает игру заново с новыми настройками. Пока партия идёт, это окно можно держать
+  открытым.</div>
 </div>
 
 <script type="text/javascript">
@@ -245,13 +251,17 @@ function load() {
   /* то же самое, что делает sandbox.js: старые файлы переводим на
      "плюшки только игроку", иначе бот снова получит ускорение */
   var ver = parseInt(cfg.CfgVer, 10);
+  if (ver === 3) {
+    /* версия 1.5 записывала выбранную игру в Target — возвращаем "обе" */
+    cfg.Target = "both";
+  }
   if (!(ver >= 3)) {
     if (fso.FileExists(CFG)) {
       cfg.SandboxSW = "player"; cfg.Heroes = "normal"; cfg.BonusBuildings = "normal";
       cfg.BuildSpeed = "normal"; cfg.FairAI = "yes"; cfg.AIDifficulty = "1";
     }
-    cfg.CfgVer = "3";
   }
+  cfg.CfgVer = "4";
 }
 
 function val(id, dflt) {
@@ -338,11 +348,47 @@ function save(quiet) {
 
 function launch(mode) {
   var cmd = 'cmd /c cscript //nologo "' + JS + '" ' + mode;
-  if (mode !== "run") { cmd += " & pause"; }
+  if (mode.indexOf("run") !== 0) { cmd += " & pause"; }
   try {
     sh.Run(cmd, 1, false);
   } catch (e) {
     show("Не смог запустить: " + e.message, false);
+  }
+}
+
+/* «Играть»: только сохраняем настройки и запускаем нужную игру.
+   Target (для какой игры ставить правила) при этом НЕ меняется. */
+function play(which) {
+  collect();
+  if (!writeCfg()) { return; }
+  launch("run " + which);
+}
+
+/* Настройки применяются при старте игры, поэтому «применить сейчас» =
+   закрыть игру и запустить её снова. */
+function restart(which) {
+  collect();
+  if (!writeCfg()) { return; }
+  launch("restart " + which);
+}
+
+function openLog() {
+  var last = fso.BuildPath(fso.BuildPath(MOD_DIR, "logs"), "last.txt");
+  var logFile = "";
+  try {
+    if (fso.FileExists(last)) {
+      var ts = fso.OpenTextFile(last, 1, false);
+      logFile = ts.ReadLine(); ts.Close();
+    }
+  } catch (e) { logFile = ""; }
+  if (!logFile || !fso.FileExists(logFile)) {
+    show("Лога пока нет: запустите игру через это окно, тогда он появится. Файл: " + last, false);
+    return;
+  }
+  try {
+    sh.Run('notepad "' + logFile + '"', 1, false);
+  } catch (e) {
+    show("Лог: " + logFile, true);
   }
 }
 
@@ -367,13 +413,7 @@ function preset(key) {
   if (writeCfg()) { show("Пресет применён и сохранён.", true); }
 }
 
-/* Играть: правила ставятся только для выбранной игры, потом запускается игра */
-function play(which) {
-  collect();
-  cfg.Target = which;
-  if (!writeCfg()) { return; }
-  launch("run");
-}
+
 
 function runTool(mode) {
   collect();

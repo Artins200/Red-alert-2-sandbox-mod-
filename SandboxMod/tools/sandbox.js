@@ -259,6 +259,12 @@ function loadCfg() {
      as the player (instant build speed, unlimited heroes/extra buildings).
      Old files are moved to the "player only" defaults: the AI plays vanilla. */
   var cv = cfg.CfgVer ? parseInt(cfg.CfgVer, 10) : 0;
+  if (cv === 3) {
+    /* the 1.5 settings window saved the chosen game into Target, so the mod
+       stopped offering both games. Put it back and mark the file as fixed. */
+    cfg.Target = "both";
+    cfg.CfgVer = "4";
+  }
   if (!(cv >= 3)) {
     if (exists(CFG_PATH)) {
       cfg.SandboxSW = "player";
@@ -268,7 +274,7 @@ function loadCfg() {
       cfg.FairAI = "yes";
       cfg.AIDifficulty = "1";
     }
-    cfg.CfgVer = "3";
+    cfg.CfgVer = "4";
   }
   return cfg;
 }
@@ -511,8 +517,9 @@ function gameDir(cfg) {
   return fso.GetParentFolderName(MOD_DIR);
 }
 
-function pickGames(cfg) {
+function pickGames(cfg, force) {
   var t = lower(cfg.Target);
+  if (force === "yr" || force === "ra2") { t = force; }
   var out = [];
   if (t === "both" || t === "yr") { out.push(GAMES.yr); }
   if (t === "both" || t === "ra2") { out.push(GAMES.ra2); }
@@ -529,11 +536,35 @@ function findSettingsIni(gdir, name) {
   return null;
 }
 
-function prepare(cfg, log) {
+function stateSet(state, kind, name) {
+  for (var i = state.length - 1; i >= 0; i--) {
+    if (String(state[i]).split("|")[1] === name) { state.splice(i, 1); }
+  }
+  state.push(kind + "|" + name);
+}
+
+function stateHas(state, name) {
+  for (var i = 0; i < state.length; i++) {
+    if (String(state[i]).split("|")[1] === name) { return true; }
+  }
+  return false;
+}
+
+function prepare(cfg, log, force) {
   var gdir = gameDir(cfg);
-  var games = pickGames(cfg);
+  var games = pickGames(cfg, force);
   var state = [];
   var i, g;
+
+  /* Whatever an earlier run patched must stay tracked. A forced single game run
+     used to overwrite the state, so the other game's rules file stayed patched. */
+  if (exists(STATE_PATH)) {
+    var prev = readLines(STATE_PATH);
+    for (i = 0; i < prev.length; i++) {
+      var pline = trim(String(prev[i]));
+      if (pline !== "" && !stateHas(state, String(pline).split("|")[1])) { state.push(pline); }
+    }
+  }
 
   if (!dirExists(gdir)) {
     log("\u0418\u0433\u0440\u043E\u0432\u0430\u044F \u043F\u0430\u043F\u043A\u0430 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u0430: " + gdir);
@@ -576,17 +607,23 @@ function prepare(cfg, log) {
     if (exists(target) && !isOurs(target)) {
       /* a foreign rules file (vanilla drop-in or another mod) - remember it */
       copyFile(target, backup);
-      state.push("backup|" + g.rulesFile);
+      stateSet(state, "backup", g.rulesFile);
     } else if (exists(target)) {
       /* our own leftover after a crash / killed console window */
-      if (exists(backup)) { state.push("backup|" + g.rulesFile); }
-      else { state.push("create|" + g.rulesFile); }
+      if (exists(backup)) { stateSet(state, "backup", g.rulesFile); }
+      else { stateSet(state, "create", g.rulesFile); }
     } else {
       deleteFile(backup);
-      state.push("create|" + g.rulesFile);
+      stateSet(state, "create", g.rulesFile);
     }
     writeLines(target, lines);
     log("  " + g.label + ": " + g.rulesFile + " \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D (" + lines.length + " \u0441\u0442\u0440\u043E\u043A)");
+    var probs = verifyInstall(target, g, cfg);
+    if (probs.length === 0) {
+      log("    \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430: \u043f\u0440\u0430\u0432\u0438\u043b\u0430 \u043d\u0430 \u043c\u0435\u0441\u0442\u0435, ok");
+    } else {
+      for (var pi = 0; pi < probs.length; pi++) { log("    \u0412\u041d\u0418\u041c\u0410\u041d\u0418\u0415: " + probs[pi]); }
+    }
   }
 
   /* skirmish defaults, so the player does not have to click anything */
@@ -602,7 +639,20 @@ function prepare(cfg, log) {
       writeLines(ini, il);
       log("  " + fso.GetFileName(ini) + ": \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0441\u043A\u0438\u0440\u043C\u0438\u0448\u0430 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u044B");
     }
-    state.push("ini|" + fso.GetFileName(ini));
+    stateSet(state, "ini", fso.GetFileName(ini));
+  }
+
+  /* heal a folder left half patched by an older version: our generated rules
+     file that the state does not know about is tracked from now on */
+  var all = [GAMES.yr, GAMES.ra2];
+  for (i = 0; i < all.length; i++) {
+    var t2 = join(gdir, all[i].rulesFile);
+    if (!isOurs(t2) || stateHas(state, all[i].rulesFile)) { continue; }
+    if (exists(join(BACKUP_DIR, all[i].rulesFile + ".orig"))) {
+      stateSet(state, "backup", all[i].rulesFile);
+    } else {
+      stateSet(state, "create", all[i].rulesFile);
+    }
   }
 
   writeLines(STATE_PATH, state);
@@ -797,9 +847,14 @@ function runAndWait(gdir, cmdLine) {
   return rc;
 }
 
-function sandboxSession(cfg, cmdLine, log) {
-  var r = prepare(cfg, log);
+function sandboxSession(cfg, cmdLine, log, force) {
+  var r = prepare(cfg, log, force);
   if (!r.ok) { return 1; }
+  if (trim(cmdLine) === "") {
+    var exe = findExe(r.dir, force || "auto");
+    if (exe === null) { log("\u041D\u0435 \u043D\u0430\u0448\u0451\u043B exe \u0438\u0433\u0440\u044B \u0432 " + r.dir); return 1; }
+    cmdLine = '"' + exe + '"';
+  }
   log("");
   log("\u0417\u0430\u043F\u0443\u0441\u043A: " + cmdLine);
 
@@ -834,12 +889,71 @@ function sandboxSession(cfg, cmdLine, log) {
   return 0;
 }
 
+/* ------------------------------------------------------------- self check */
+/* Re-reads the file that was just installed and checks the few things the mod is
+   about. If something did not land, the session log says so instead of leaving
+   the player guessing why nothing changed in game. */
+function safeModeOff(cfg) {
+  var m = lower(trim(cfg.Patches));
+  return m !== "safe" && m !== "none";
+}
+
+function verifyInstall(path, game, cfg) {
+  var problems = [];
+  if (!exists(path)) { return ["\u0444\u0430\u0439\u043b \u043d\u0435 \u0441\u043e\u0437\u0434\u0430\u043d"]; }
+  var lines = readLines(path);
+  if (lines.length === 0 || String(lines[0]).indexOf("RA2 SANDBOX MOD") < 0) {
+    problems.push("\u043d\u0435\u0442 \u043c\u0430\u0440\u043a\u0435\u0440\u0430 \u043c\u043e\u0434\u0430 \u0432 \u043f\u0435\u0440\u0432\u043e\u0439 \u0441\u0442\u0440\u043e\u043a\u0435");
+  }
+  var swMode = lower(trim(cfg.SandboxSW));
+  if (swMode !== "off") {
+    var rt = swRechargeValue(lower(cfg.SWRecharge)) || "0.05";
+    var got = iniGet(lines, game.nukeSpecial, "RechargeTime");
+    if (got === null || lower(got) !== lower(rt)) {
+      problems.push("\u0437\u0430\u0440\u044f\u0434\u043a\u0430 [" + game.nukeSpecial + "] = " + got + ", \u0436\u0434\u0430\u043b\u0438 " + rt);
+    }
+    if (swMode === "player") {
+      for (var i = 0; i < game.swBuildings.length; i++) {
+        var ab = iniGet(lines, game.swBuildings[i], "AIBuildThis");
+        if (ab === null || lower(ab) !== "no") {
+          problems.push("[" + game.swBuildings[i] + "] AIBuildThis = " + ab + " (\u0431\u043e\u0442 \u0441\u043c\u043e\u0436\u0435\u0442 \u0441\u0442\u0440\u043e\u0438\u0442\u044c \u0441\u0443\u043f\u0435\u0440\u043e\u0440\u0443\u0436\u0438\u0435)");
+        }
+      }
+    }
+  }
+  if (lower(cfg.BigBoom) === "yes" && safeModeOff(cfg)) {
+    var cs = iniGet(lines, "NUKE", "CellSpread");
+    if (cs !== null && parseFloat(cs) > 11) {
+      problems.push("CellSpread = " + cs + " (\u0431\u043e\u043b\u044c\u0448\u0435 11 \u2014 \u0434\u0432\u0438\u0436\u043e\u043a \u043f\u0430\u0434\u0430\u0435\u0442)");
+    }
+  }
+  return problems;
+}
+
+/* ---------------------------------------------------------------- restart */
+/* Used by the settings window: the rules are read once, when the game starts,
+   so "apply now" always means "restart the game with the new settings". */
+function restartSession(cfg, log, force) {
+  log("\u0417\u0430\u043a\u0440\u044b\u0432\u0430\u044E \u0437\u0430\u043f\u0443\u0449\u0435\u043d\u043d\u0443\u044E \u0438\u0433\u0440\u0443 (\u0435\u0441\u043b\u0438 \u043e\u043d\u0430 \u0435\u0441\u0442\u044c)...");
+  try { sh.Run("taskkill /IM gamemd.exe /F", 0, true); } catch (e) { }
+  try { sh.Run("taskkill /IM game.exe /F", 0, true); } catch (e) { }
+  /* if the game was started by our launcher, that launcher is still waiting and
+     will restore the rules by itself - give it a moment so the two restores do
+     not overlap with the new patch */
+  try { WScript.Sleep(1500); } catch (e) { }
+  var st = restore(log, false);
+  if (st.restored + st.removed > 0) {
+    log("\u0424\u0430\u0439\u043b\u044b \u0438\u0433\u0440\u044b \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0435\u043d\u044b.");
+  }
+  return sandboxSession(cfg, "", log, force);
+}
+
 /* -------------------------------------------------------------------- export */
 /* Writes the patched rules into SandboxMod\export\<yr|ra2>\ without touching the
    game folder - the form other launchers want. For example the static
    recompilation build reads mods/yr/<name>/rulesmd.ini (see docs/RECOMP.md). */
-function exportRules(cfg, log) {
-  var games = pickGames(cfg);
+function exportRules(cfg, log, force) {
+  var games = pickGames(cfg, force);
   var root = join(MOD_DIR, "export");
   var made = 0;
   for (var i = 0; i < games.length; i++) {
@@ -1216,10 +1330,15 @@ function main() {
     log("\u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043E: " + st.restored + ", \u0443\u0434\u0430\u043B\u0435\u043D\u043E: " + st.removed);
     return 0;
   }
+  var arg2 = "";
+  if (WScript.Arguments.length > 1) { arg2 = lower(WScript.Arguments(1)); }
+  if (arg2 !== "yr" && arg2 !== "ra2") { arg2 = ""; }
+
   if (arg === "export") {
-    var made = exportRules(cfg, log);
+    var made = exportRules(cfg, log, arg2);
     return made > 0 ? 0 : 1;
   }
+  if (arg === "restart") { return restartSession(cfg, log, arg2); }
   if (arg === "diag") { return diagnostics(log); }
   if (arg === "uninstall") { return uninstall(log); }
 
@@ -1229,11 +1348,11 @@ function main() {
   if (arg === "run" || (cmd !== "" && cmd !== "undefined")) {
     if (cmd === "" || cmd === "undefined") {
       var gdir = gameDir(cfg);
-      var exe = findExe(gdir, "auto");
+      var exe = findExe(gdir, arg2 || "auto");
       if (exe === null) { log("\u041D\u0435 \u043D\u0430\u0448\u0451\u043B exe \u0438\u0433\u0440\u044B \u0432 " + gdir); return 1; }
       cmd = '"' + exe + '"';
     }
-    return sandboxSession(cfg, cmd, log);
+    return sandboxSession(cfg, cmd, log, arg2);
   }
 
   menu(cfg, log);
