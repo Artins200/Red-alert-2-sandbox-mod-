@@ -1,0 +1,9 @@
+# runtime folders of the mod (created on the player's machine)
+SandboxMod/backup/
+SandboxMod/state/
+SandboxMod/config/sandbox.cfg
+
+# OS junk
+Thumbs.db
+desktop.ini
+.DS_Store
