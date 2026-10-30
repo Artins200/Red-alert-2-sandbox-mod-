@@ -194,11 +194,12 @@ var DEFAULTS = {
   ShortGame:       "no",
   FogOfWar:        "no",
   AIPlayers:       "2",
-  AIDifficulty:    "2",
+  AIDifficulty:    "1",         /* 0 = Easy, 1 = Normal, 2 = Brutal */
   CarpetNuke:      "6",         /* LineMultiplier of the nuke superweapon (BigBoom) */
   Patches:         "full",      /* full | safe | none - how much to patch (for bug hunting) */
   KitCost:         "1500",      /* cost of the sandbox superweapon buildings */
-  GameDir:         ""           /* optional override */
+  GameDir:         "",          /* optional override */
+  CfgVer:          "0"          /* settings file format (used for migration) */
 };
 
 var GAMES = {
@@ -253,6 +254,22 @@ function loadCfg() {
       }
     }
   }
+
+  /* Settings written by an older version used to give the AI the same bonuses
+     as the player (instant build speed, unlimited heroes/extra buildings).
+     Old files are moved to the "player only" defaults: the AI plays vanilla. */
+  var cv = cfg.CfgVer ? parseInt(cfg.CfgVer, 10) : 0;
+  if (!(cv >= 3)) {
+    if (exists(CFG_PATH)) {
+      cfg.SandboxSW = "player";
+      cfg.Heroes = "normal";
+      cfg.BonusBuildings = "normal";
+      cfg.BuildSpeed = "normal";
+      cfg.FairAI = "yes";
+      cfg.AIDifficulty = "1";
+    }
+    cfg.CfgVer = "3";
+  }
   return cfg;
 }
 
@@ -262,7 +279,7 @@ function saveCfg(cfg) {
                "RevealMap", "BigBoom", "BuildSpeed", "SellRefund", "FairAI",
                "Money", "UnitCount", "TechLevel", "GameSpeed", "Crates",
                "ShortGame", "FogOfWar", "AIPlayers", "AIDifficulty", "CarpetNuke",
-               "Patches", "KitCost", "GameDir"];
+               "Patches", "KitCost", "CfgVer", "GameDir"];
   var out = [];
   out.push("; Red Alert 2 Sandbox Mod - settings");
   out.push("; Can be edited by hand or from the mod menu (SandboxMod.bat).");
@@ -277,7 +294,7 @@ function saveCfg(cfg) {
 /* -------------------------------------------------------------- patch logic */
 
 function swRechargeValue(mode) {
-  if (mode === "instant") { return "0.05"; }   /* ~3 seconds */
+  if (mode === "instant") { return "0.01"; }   /* ~0.6 seconds - as good as no cooldown */
   if (mode === "fast") { return "1"; }         /* 1 minute */
   return null;
 }
@@ -404,8 +421,30 @@ function applyPatches(lines, game, cfg) {
 
   /* --- 10. honest AI (no money cheating) -------------------------------- */
   if (!safeOnly && lower(cfg.FairAI) === "yes") {
+    /* money cheats: 100% = no bonus, no free virtual ore purifiers */
     setIfPresent("General", "MultiplayerAICM", "100,100,100");
     setIfPresent("General", "AIVirtualPurifiers", "0,0,0");
+
+    /* Difficulty sections work "inverted" for the computer in skirmish:
+       the human player always reads [Normal], the Brutal AI reads [Easy],
+       the medium AI reads [Normal], the Easy AI reads [Difficult].
+       Vanilla [Easy] has ROF=.8 (computer fires 25% faster) and BuildTime=.8
+       - i.e. exactly the bonuses Brutal AI gets over the player. Setting the
+       section to neutral values removes them: the human is untouched because
+       he never reads [Easy]. BuildTime/BuildDelay/RepairDelay only affect the
+       computer, so raising them slows the AI's development, not the player's. */
+    iniSet(lines, "Easy", "ROF", "1.0", false);
+    iniSet(lines, "Easy", "FirePower", "1.0", false);
+    iniSet(lines, "Easy", "Armor", "1.0", false);
+    iniSet(lines, "Easy", "Groundspeed", "1.0", false);
+    iniSet(lines, "Easy", "Airspeed", "1.0", false);
+    iniSet(lines, "Easy", "Cost", "1.0", false);
+    iniSet(lines, "Easy", "BuildTime", "1.5", false);
+    iniSet(lines, "Easy", "BuildDelay", ".3", false);
+    iniSet(lines, "Easy", "RepairDelay", ".2", false);
+    iniSet(lines, "Normal", "BuildTime", "1.2", false);
+    iniSet(lines, "Normal", "BuildDelay", ".15", false);
+    iniSet(lines, "Normal", "RepairDelay", ".1", false);
   }
 
   return warn;
@@ -430,6 +469,13 @@ function setInBody(body, key, value, addIfMissing) {
     if (re.test(body[i])) { body[i] = key + "=" + value; return; }
   }
   if (addIfMissing) { body.push(key + "=" + value); }
+}
+
+function removeInBody(body, key) {
+  var re = new RegExp("^\\s*" + key + "\\s*=", "i");
+  for (var i = body.length - 1; i >= 0; i--) {
+    if (re.test(body[i])) { body.splice(i, 1); }
+  }
 }
 
 /* keep the art of the original: if the section already points somewhere with
@@ -491,6 +537,17 @@ function installSandboxSuperweapons(lines, game, cfg, rt, warn) {
     setInBody(bBody, "Power", "0", false);
     setInBody(bBody, "Cost", String(cost), false);
     setInBody(bBody, "Adjacent", "2", false);
+
+    /* Give it its own label so it cannot be mixed up with the vanilla building
+       (the vanilla one keeps its 10 minute recharge). Dropping UIName makes the
+       game show the plain Name= text instead of the CSF string. */
+    var origLabel = "";
+    for (var q = 0; q < bBody.length; q++) {
+      var nm = /^\s*Name\s*=\s*(.*)$/i.exec(bBody[q]);
+      if (nm) { origLabel = trim(nm[1]); break; }
+    }
+    removeInBody(bBody, "UIName");
+    setInBody(bBody, "Name", "SANDBOX " + (origLabel === "" ? name : origLabel), false);
 
     /* superweapon: instant recharge, own sidebar button */
     var swBody = [];
@@ -972,6 +1029,13 @@ function countSections(lines) {
 
 function T(s) { return s; }
 
+function diffLabel(v) {
+  var n = intVal(v, 1);
+  if (n === 0) { return "\u043b\u0435\u0433\u043a\u043e"; }
+  if (n === 2) { return "Brutal"; }
+  return "\u0441\u0440\u0435\u0434\u043d\u0435";
+}
+
 function onOff(v) { return lower(v) === "yes" ? "\u0434\u0430" : "\u043D\u0435\u0442"; }
 
 function menu(cfg, log) {
@@ -988,7 +1052,7 @@ function menu(cfg, log) {
     log("  3) \u0418\u0433\u0440\u0430\u0442\u044C \u0442\u0430\u043A, \u043A\u0430\u043A \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D\u043E \u0432 Steam     <- Enter");
     log("-------------------------------------------------");
     log("  4)  \u0421\u0443\u043F\u0435\u0440\u043E\u0440\u0443\u0436\u0438\u0435 \u043F\u0435\u0441\u043E\u0447\u043D\u0438\u0446\u044B .......... " + swModeLabel(cfg.SandboxSW));
-    log("  5)  \u0417\u0430\u0440\u044F\u0434\u043A\u0430 \u0441\u0443\u043F\u0435\u0440\u043E\u0440\u0443\u0436\u0438\u044F ............ " + cfg.SWRecharge);
+    log("  5)  \u0417\u0430\u0440\u044F\u0434\u043A\u0430 \u0441\u0443\u043F\u0435\u0440\u043E\u0440\u0443\u0436\u0438\u044F ............ " + cfg.SWRecharge + (lower(cfg.SWRecharge) === "instant" ? " (" + T("~0.5 \u0441\u0435\u043a") + ")" : ""));
     log("  6)  \u0413\u0435\u0440\u043E\u0438 \u0431\u0435\u0437 \u043B\u0438\u043C\u0438\u0442\u0430 (\u0438 \u0431\u043E\u0442\u0443) ...... " + (lower(cfg.Heroes) === "unlimited" ? "\u0414\u0410" : "\u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435"));
     log("  7)  \u0411\u043E\u043D\u0443\u0441\u043D\u044B\u0435 \u0437\u0434\u0430\u043D\u0438\u044F (\u0438 \u0431\u043E\u0442\u0443) ....... " + (lower(cfg.BonusBuildings) === "unlimited" ? "\u0414\u0410" : "\u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435"));
     log("  8)  \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432\u0441\u044E \u043A\u0430\u0440\u0442\u0443 .............. " + onOff(cfg.RevealMap));
@@ -1000,7 +1064,7 @@ function menu(cfg, log) {
     log(" 14)  \u042E\u043D\u0438\u0442\u043E\u0432 \u043D\u0430 \u0441\u0442\u0430\u0440\u0442\u0435 ............... " + cfg.UnitCount);
     log(" 15)  \u0421\u043A\u043E\u0440\u043E\u0441\u0442\u044C \u0438\u0433\u0440\u044B (0..6) ........... " + cfg.GameSpeed);
     log(" 16)  \u0411\u043E\u0442\u043E\u0432 \u043D\u0430 \u043A\u0430\u0440\u0442\u0435 \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E .... " + cfg.AIPlayers);
-    log(" 17)  \u0421\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u0431\u043E\u0442\u043E\u0432 (0,1,2) ........ " + cfg.AIDifficulty);
+    log(" 17)  \u0421\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u0431\u043E\u0442\u043E\u0432 (0,1,2) ........ " + cfg.AIDifficulty + " (" + diffLabel(cfg.AIDifficulty) + ")");
     log(" 18)  \u041A\u043E\u0440\u043E\u0442\u043A\u0430\u044F \u0438\u0433\u0440\u0430 .................. " + onOff(cfg.ShortGame));
     log(" 19)  \u0422\u0443\u043C\u0430\u043D \u0432\u043E\u0439\u043D\u044B .................... " + onOff(cfg.FogOfWar));
     log(" 20)  \u041B\u0438\u043D\u0438\u044F \u0443\u0434\u0430\u0440\u0430 (\u043A\u043E\u0432\u0440\u043E\u0432\u0430\u044F) ......... " + cfg.CarpetNuke);
@@ -1023,6 +1087,10 @@ function menu(cfg, log) {
     log("  \u043E\u0442 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 \u0438 \u0431\u043E\u0442 \u0438\u0445 \u043D\u0438\u043A\u043E\u0433\u0434\u0430 \u043D\u0435 \u0441\u0442\u0440\u043E\u0438\u0442 - \u0443 \u043D\u0435\u0433\u043E \u0432\u0441\u0451 \u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435.");
     log("  \u0414\u0432\u0430 \u0431\u043E\u0442\u0430 \u0434\u0440\u0443\u0433 \u043F\u0440\u043E\u0442\u0438\u0432 \u0434\u0440\u0443\u0433\u0430: \u043F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 2 \u0418\u0418 + \u0441\u0435\u0431\u044F, \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435");
     log("  '\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432\u0441\u044E \u043A\u0430\u0440\u0442\u0443' \u0438 \u043D\u0435 \u0441\u0442\u0440\u043E\u0439\u0442\u0435 \u0431\u0430\u0437\u0443 - \u0431\u0443\u0434\u0435\u0442\u0435 \u043D\u0430\u0431\u043B\u044E\u0434\u0430\u0442\u0435\u043B\u0435\u043C.");
+    log("  \u0412 \u0441\u043f\u0438\u0441\u043a\u0435 \u043f\u043e\u0441\u0442\u0440\u043e\u0435\u043a \u043f\u0435\u0441\u043e\u0447\u043d\u044b\u0435 \u0437\u0434\u0430\u043d\u0438\u044f \u043f\u043e\u0434\u043f\u0438\u0441\u0430\u043d\u044b SANDBOX ... \u2014 \u0441\u0442\u0440\u043e\u0439\u0442\u0435 \u0438\u043c\u0435\u043d\u043d\u043e \u0438\u0445:");
+    log("  \u043e\u0431\u044b\u0447\u043d\u044b\u0435 \u044f\u0434\u0435\u0440\u043d\u0430\u044f \u0448\u0430\u0445\u0442\u0430 \u0438 \u0442.\u043f. \u043e\u0441\u0442\u0430\u043b\u0438\u0441\u044c \u0441 \u0437\u0430\u0440\u044f\u0434\u043a\u043e\u0439 10 \u043c\u0438\u043d\u0443\u0442, \u043a\u0430\u043a \u0432 \u0432\u0430\u043d\u0438\u043b\u0438.");
+    log("  \u0427\u0435\u0441\u0442\u043d\u044b\u0439 \u0418\u0418: \u0443 Brutal \u043e\u0442\u043e\u0431\u0440\u0430\u043d\u044b \u0434\u0435\u043d\u044c\u0433\u0438, \u0432\u0438\u0440\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0435 \u043e\u0447\u0438\u0441\u0442\u0438\u0442\u0435\u043b\u0438 \u0438 \u0431\u043e\u043d\u0443\u0441 \u043a \u0441\u0442\u0440\u0435\u043b\u044c\u0431\u0435,");
+    log("  \u0430 \u0435\u0433\u043e \u0441\u0442\u0440\u043e\u0438\u0442\u0435\u043b\u044c\u0441\u0442\u0432\u043e \u0441\u043f\u0435\u0446\u0438\u0430\u043b\u044c\u043d\u043e \u0437\u0430\u043c\u0435\u0434\u043b\u0435\u043d\u043e \u2014 \u0431\u044b\u0441\u0442\u0440\u0435\u0435 \u0440\u0430\u0437\u0432\u0438\u0432\u0430\u0435\u0442\u0435\u0441\u044c \u0442\u043e\u043b\u044c\u043a\u043e \u0432\u044b.");
     log("");
 
     var answer = prompt(log, "\u0412\u044B\u0431\u043E\u0440 [1]: ");
@@ -1091,7 +1159,7 @@ function applyPreset(cfg, key) {
     cfg.ShortGame = "no";
     cfg.FogOfWar = "no";
     cfg.AIPlayers = "2";
-    cfg.AIDifficulty = "2";
+    cfg.AIDifficulty = "1";
     return;
   }
   if (key === "all") {

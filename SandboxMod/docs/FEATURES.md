@@ -18,7 +18,7 @@
 | Бонусные здания без лимита | `GAOREP`, `NAINDP`, `NACLON` → `BuildLimit=-1` |
 | Мгновенное строительство (по желанию) | `[General] BuildSpeed=.1` (было `.7`). Внимание: параметр общий, поэтому по умолчанию выключен — иначе быстрее строит и ИИ |
 | Полный возврат денег | `[General] RefundPercent=100%` |
-| Честный ИИ (фикс «читерской» сложности) | `MultiplayerAICM=100,100,100`, `AIVirtualPurifiers=0,0,0` |
+| Честный ИИ (фикс «читерской» сложности) | `MultiplayerAICM=100,100,100`, `AIVirtualPurifiers=0,0,0`; `[Easy] ROF=FirePower=Armor=1.0` (Brutal-ИИ читает `[Easy]`, человек всегда `[Normal]`); в `[Easy]`/`[Normal]` увеличены `BuildTime`, `BuildDelay`, `RepairDelay` — движок применяет их только к компьютеру |
 | Удобные умолчания для скирмиша | `Money/MaxMoney`, `UnitCount`, `TechLevel`, `GameSpeed`, `AIPlayers`, `AIDifficulty`, `Crates`, `ShortGame`, `FogOfWar`, а также `[Skirmish]` в `RA2.INI` / `RA2MD.INI` |
 | Режим зрителя (2 бота друг против друга) | `ShortGame=no` + открытая карта + совет «не строить базу» (см. README) |
 | Возврат игры в ванильное состояние | резервные копии + `uninstall.bat` |
