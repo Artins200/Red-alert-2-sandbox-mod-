@@ -361,13 +361,20 @@ function applyPatches(lines, game, cfg) {
   }
 
   /* --- 5. bigger, prettier explosions ----------------------------------- */
+  /* CellSpread is NOT raised: the nuke already sits at the engine maximum of 10
+     and anything above ~11 makes gamemd.exe crash on the first explosion
+     ("internal error"); 11 itself is reported as buggy. The blast is made
+     brutal in the safe ways instead - more damage, more radiation, a higher
+     PercentAtMax (how much of the damage reaches the edge of the blast) and
+     more missiles in the line. */
   if (!safeOnly && lower(cfg.BigBoom) === "yes") {
-    setIfPresent("NUKE", "CellSpread", "14");
-    setIfPresent("NukePayload", "Damage", "1200");
+    setIfPresent("NUKE", "CellSpread", "10");
+    setIfPresent("NUKE", "PercentAtMax", ".75");
+    setIfPresent("NukePayload", "Damage", "1500");
     setIfPresent("NukePayload", "RadLevel", "800");
     var carpet = intVal(cfg.CarpetNuke, 6);
     if (carpet < 1) { carpet = 1; }
-    if (carpet > 10) { carpet = 10; }
+    if (carpet > 6) { carpet = 6; }
     set(game.nukeSpecial, "LineMultiplier", String(carpet));
   }
 
@@ -903,8 +910,37 @@ function sandboxSession(cfg, cmdLine, log) {
     log("\u0427\u0442\u043E \u0434\u0435\u043B\u0430\u0442\u044C: \u0432 \u043C\u0435\u043D\u044E \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 23) \u0420\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A -> none \u0438 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u0435 \u0441\u043D\u043E\u0432\u0430.");
     log("  * \u043E\u0448\u0438\u0431\u043A\u0430 \u043E\u0441\u0442\u0430\u043B\u0430\u0441\u044C  -> \u0434\u0435\u043B\u043E \u043D\u0435 \u0432 \u043F\u0430\u0442\u0447\u0430\u0445, \u0430 \u0432 \u0431\u0430\u0437\u043E\u0432\u043E\u043C \u0444\u0430\u0439\u043B\u0435 \u043F\u0440\u0430\u0432\u0438\u043B / \u0441\u0430\u043C\u043E\u0439 \u0438\u0433\u0440\u0435;");
     log("  * \u043E\u0448\u0438\u0431\u043A\u0438 \u043D\u0435\u0442       -> \u043F\u0430\u0442\u0447\u0438, \u0441\u0443\u0437\u044C\u0442\u0435 \u0438\u0445 \u0440\u0435\u0436\u0438\u043C\u043E\u043C safe \u0438 \u043E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u043F\u0443\u043D\u043A\u0442\u044B 8-12.");
-  }
+    log("");
+    log(" " + "\u041f\u0430\u0434\u0435\u043d\u0438\u0435 \u0432\u043e \u0432\u0440\u0435\u043c\u044f \u044f\u0434\u0435\u0440\u043d\u043e\u0433\u043e \u0443\u0434\u0430\u0440\u0430: \u043f\u0443\u043d\u043a\u0442 9 (\u0411\u043e\u043b\u044c\u0448\u0438\u0435 \u0432\u0437\u0440\u044b\u0432\u044b) -> \u043d\u0435\u0442.");
+    log(" " + "\u041f\u0430\u0434\u0435\u043d\u0438\u0435 \u043d\u0430 \u044d\u043a\u0440\u0430\u043d\u0435 \u043f\u043e\u0431\u0435\u0434\u044b: \u0438\u0437\u0432\u0435\u0441\u0442\u043d\u0430\u044f \u0431\u043e\u043b\u044f\u0447\u043a\u0430 Steam-\u0432\u0435\u0440\u0441\u0438\u0438, \u043b\u0435\u0447\u0438\u0442\u0441\u044f");
+    log(" " + "cnc-ddraw \u0438\u043b\u0438 \u043f\u0430\u0442\u0447\u0435\u043c CnCNet \u2014 \u0441\u043c. docs\\STEAM.md, \u0440\u0430\u0437\u0434\u0435\u043b 5.");  }
   return 0;
+}
+
+/* -------------------------------------------------------------------- export */
+/* Writes the patched rules into SandboxMod\export\<yr|ra2>\ without touching the
+   game folder - the form other launchers want. For example the static
+   recompilation build reads mods/yr/<name>/rulesmd.ini (see docs/RECOMP.md). */
+function exportRules(cfg, log) {
+  var games = pickGames(cfg);
+  var root = join(MOD_DIR, "export");
+  var made = 0;
+  for (var i = 0; i < games.length; i++) {
+    var g = games[i];
+    var src = join(RULES_DIR, g.source);
+    var custom = join(join(RULES_DIR, "custom"), g.source);
+    if (exists(custom)) { src = custom; }
+    if (!exists(src)) { continue; }
+    var lines = readLines(src);
+    var warn = applyPatches(lines, g, cfg);
+    for (var w = 0; w < warn.length; w++) { log("  \u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435: [" + g.label + "] " + warn[w]); }
+    var dir = join(root, g.key);
+    ensureDir(dir);
+    writeLines(join(dir, g.rulesFile), lines);
+    log("  " + g.label + ": " + join(dir, g.rulesFile) + " (" + lines.length + " \u0441\u0442\u0440\u043E\u043A)");
+    made++;
+  }
+  return made;
 }
 
 /* ---------------------------------------------------------------- diagnostics */
@@ -1074,6 +1110,7 @@ function menu(cfg, log) {
     log(" 22)  \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438");
     log(" 23)  \u0420\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A (\u0434\u043B\u044F \u043E\u0442\u043B\u0430\u0434\u043A\u0438) ... " + cfg.Patches);
     log(" 24)  \u041F\u0440\u0435\u0441\u0435\u0442: " + presetName(cfg));
+    log(" 25)  \u042d\u043a\u0441\u043f\u043e\u0440\u0442 \u043f\u0440\u0430\u0432\u0438\u043b (recomp / \u0434\u0440\u0443\u0433\u0438\u0435 \u0441\u0431\u043e\u0440\u043a\u0438)");
     log("  0)  \u0412\u044B\u0445\u043E\u0434");
     log("");
     if (lower(cfg.Patches) === "safe") {
@@ -1117,11 +1154,21 @@ function menu(cfg, log) {
       case 17: cfg.AIDifficulty = cycle(cfg.AIDifficulty, ["0", "1", "2"]); break;
       case 18: cfg.ShortGame = toggle(cfg.ShortGame, "yes", "no"); break;
       case 19: cfg.FogOfWar = toggle(cfg.FogOfWar, "yes", "no"); break;
-      case 20: cfg.CarpetNuke = cycle(cfg.CarpetNuke, ["1", "2", "4", "6", "8", "10"]); break;
+      case 20: cfg.CarpetNuke = cycle(cfg.CarpetNuke, ["1", "2", "3", "4", "6"]); break;
       case 21: diagnostics(log); break;
       case 22: cfg = resetCfg(); break;
       case 23: cfg.Patches = cycle(cfg.Patches, ["full", "safe", "none"]); break;
       case 24: applyPreset(cfg, cycle(presetKey(cfg), ["player", "all", "vanilla"])); break;
+      case 25:
+        log("");
+        if (exportRules(cfg, log) > 0) {
+          log(" " + "\u0413\u043e\u0442\u043e\u0432\u043e. \u0414\u043b\u044f recomp-\u0441\u0431\u043e\u0440\u043a\u0438 \u0441\u043a\u043e\u043f\u0438\u0440\u0443\u0439\u0442\u0435 export\\yr\\rulesmd.ini");
+          log(" " + "\u0432 <recomp>\\mods\\yr\\SandboxMod\\rulesmd.ini (\u0434\u043b\u044f RA2 \u2014 export\\ra2\\rules.ini");
+          log(" " + "\u0432 mods\\ra2\\SandboxMod\\rules.ini).");
+        } else {
+          log(" " + "\u041d\u0435\u0447\u0435\u0433\u043e \u044d\u043a\u0441\u043f\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c: \u043d\u0435\u0442 \u0431\u0430\u0437\u043e\u0432\u044b\u0445 \u0444\u0430\u0439\u043b\u043e\u0432 \u043f\u0440\u0430\u0432\u0438\u043b.");
+        }
+        break;
       case 0: running = false; break;
       default:
         log("\u041D\u0435 \u043F\u043E\u043D\u044F\u043B. \u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u043E\u043C\u0435\u0440 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430.");
