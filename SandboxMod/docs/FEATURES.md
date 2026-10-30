@@ -9,6 +9,7 @@
 |---|---|
 | Убрать лимит на супероружие | у `GACSPH`, `GAWEAT`, `NAIRON`, `NAMISL`, `YAGNTC`, `YAPPET`: `BuildLimit=-1`, `Power=0` |
 | Мгновенная перезарядка супероружия | `RechargeTime` у `NukeSpecial`, `LightningStormSpecial`, `ChronoSphereSpecial`, `IronCurtainSpecial`, `GeneticConverterSpecial`, `PsychicDominatorSpecial`, `ForceShieldSpecial` → `0.05` (около 3 секунд) |
+| Второй комплект каждого супероружия | клонирование типов: новые секции `<здание>2` (с `Image=` на ванильную графику) + `<супероружие>2`, регистрация в `[BuildingTypes]` и `[SuperWeaponTypes]` — пункт 24 меню, ключ `CloneSW` |
 | «Красивые бомбёжки» | ядерный warhead `[NUKE]`: `CellSpread=14` (было 10 — радиус вырос почти в полтора раза); `[NukePayload]`: `Damage=1200` (было 600), `RadLevel=800`; `LineMultiplier=6` (было 2) — линия удара супероружия |
 | Ширина коврового удара настраивается | пункт 20 меню, ключ `CarpetNuke` (1–10) |
 | Открыть всю карту | `[MultiplayerDialogSettings] Shroud=no` + `[General] ShroudGrow=no` |

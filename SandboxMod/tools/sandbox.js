@@ -161,6 +161,7 @@ var DEFAULTS = {
   AIDifficulty:    "2",
   CarpetNuke:      "6",         /* LineMultiplier of the nuke superweapon (BigBoom) */
   Patches:         "full",      /* full | safe | none - how much to patch (for bug hunting) */
+  CloneSW:         "no",        /* yes = add a second independent copy of every superweapon */
   GameDir:         ""           /* optional override */
 };
 
@@ -225,7 +226,7 @@ function saveCfg(cfg) {
                "RevealMap", "BigBoom", "BuildSpeed", "SellRefund", "FairAI",
                "Money", "UnitCount", "TechLevel", "GameSpeed", "Crates",
                "ShortGame", "FogOfWar", "AIPlayers", "AIDifficulty", "CarpetNuke",
-               "Patches", "GameDir"];
+               "Patches", "CloneSW", "GameDir"];
   var out = [];
   out.push("; Red Alert 2 Sandbox Mod - settings");
   out.push("; Can be edited by hand or from the mod menu (SandboxMod.bat).");
@@ -328,15 +329,22 @@ function applyPatches(lines, game, cfg) {
   }
 
   /* --- 9. skirmish defaults --------------------------------------------- */
+  /* only the *defaults* are touched: MinMoney / MinUnitCount / MaxUnitCount stay
+     as the engine has them, so the skirmish dropdown never has to grow beyond
+     the size the exe allocates for it (that is a hardcoded limit) */
   if (!safeOnly) {
-  var money = String(intVal(cfg.Money, 40000));
-  setIfPresent("MultiplayerDialogSettings", "MinMoney", money);
-  setIfPresent("MultiplayerDialogSettings", "Money", money);
-  setIfPresent("MultiplayerDialogSettings", "MaxMoney", money);
-  var units = String(intVal(cfg.UnitCount, 10));
-  setIfPresent("MultiplayerDialogSettings", "MinUnitCount", units);
-  setIfPresent("MultiplayerDialogSettings", "UnitCount", units);
-  setIfPresent("MultiplayerDialogSettings", "MaxUnitCount", units);
+  var maxMoney = intVal(iniGet(lines, "MultiplayerDialogSettings", "MaxMoney"), 0);
+  var minMoney = intVal(iniGet(lines, "MultiplayerDialogSettings", "MinMoney"), 0);
+  var money = intVal(cfg.Money, 40000);
+  if (maxMoney > 0 && money > maxMoney) {
+    setIfPresent("MultiplayerDialogSettings", "MaxMoney", String(money));
+  }
+  if (minMoney > 0 && money < minMoney) { money = minMoney; }
+  setIfPresent("MultiplayerDialogSettings", "Money", String(money));
+  var units = intVal(cfg.UnitCount, 10);
+  var maxUnits = intVal(iniGet(lines, "MultiplayerDialogSettings", "MaxUnitCount"), 0);
+  if (maxUnits > 0 && units > maxUnits) { units = maxUnits; }
+  setIfPresent("MultiplayerDialogSettings", "UnitCount", String(units));
   setIfPresent("MultiplayerDialogSettings", "TechLevel", String(intVal(cfg.TechLevel, 10)));
   setIfPresent("MultiplayerDialogSettings", "GameSpeed", String(intVal(cfg.GameSpeed, 1)));
   setIfPresent("MultiplayerDialogSettings", "AIPlayers", String(intVal(cfg.AIPlayers, 2)));
@@ -357,7 +365,111 @@ function applyPatches(lines, game, cfg) {
     setIfPresent("General", "AIVirtualPurifiers", "0,0,0");
   }
 
+  /* --- 11. extra superweapon types (one-per-type limit workaround) ------ */
+  if (!safeOnly && lower(cfg.CloneSW) === "yes") {
+    cloneSuperweapons(lines, game, cfg, warn);
+  }
+
   return warn;
+}
+
+/* --------------------------------------------- extra superweapon types (INI) */
+/* The engine grants one charge per superweapon TYPE per house - that is a
+   hardcoded rule. The way around it inside the INI files is to declare extra
+   superweapon types (and extra buildings that grant them): each type gets its
+   own independent charge, so several strikes can really be launched at once.
+   Vanilla art is reused through Image=, so no new graphics are needed. */
+
+function bodyOf(lines, range) {
+  var out = [];
+  for (var i = range[0] + 1; i < range[1]; i++) { out.push(lines[i]); }
+  return out;
+}
+
+function setInBody(body, key, value, addIfMissing) {
+  var re = new RegExp("^\\s*" + key + "\\s*=", "i");
+  for (var i = 0; i < body.length; i++) {
+    if (re.test(body[i])) { body[i] = key + "=" + value; return; }
+  }
+  if (addIfMissing) { body.push(key + "=" + value); }
+}
+
+function listInfo(lines, listName) {
+  var r = iniFindSection(lines, listName);
+  if (r === null) { return null; }
+  var max = 0, insertAt = r[1];
+  for (var i = r[0] + 1; i < r[1]; i++) {
+    var m = /^\s*(\d+)\s*=\s*(.+?)\s*$/.exec(lines[i]);
+    if (m) {
+      var n = parseInt(m[1], 10);
+      if (n > max) { max = n; }
+      insertAt = i + 1;
+    }
+  }
+  return { max: max, insertAt: insertAt };
+}
+
+function cloneSuperweapons(lines, game, cfg, warn) {
+  var inserts = [];   /* entries for [BuildingTypes] / [SuperWeaponTypes] */
+  var blocks = [];    /* text blocks appended at the end of the file */
+  var swList = listInfo(lines, "SuperWeaponTypes");
+  var bList = listInfo(lines, "BuildingTypes");
+  var made = 0;
+
+  for (var i = 0; i < game.swBuildings.length; i++) {
+    var name = game.swBuildings[i];
+    var range = iniFindSection(lines, name);
+    if (range === null) { continue; }
+    var cloneName = name + "2";
+    if (iniFindSection(lines, cloneName) !== null) { continue; }
+
+    var swType = null;
+    for (var j = range[0] + 1; j < range[1]; j++) {
+      var m = /^\s*SuperWeapon\s*=\s*(\S+)/i.exec(lines[j]);
+      if (m) { swType = m[1]; break; }
+    }
+    if (swType === null) { continue; }
+    var cloneSW = swType + "2";
+    var swRange = iniFindSection(lines, swType);
+
+    /* clone of the building */
+    var bBody = bodyOf(lines, range);
+    setInBody(bBody, "SuperWeapon", cloneSW, true);
+    setInBody(bBody, "Image", name, false);       /* reuse vanilla graphics */
+    setInBody(bBody, "AIBuildThis", "no", true);  /* keep the AI sane */
+    setInBody(bBody, "BuildLimit", "-1", true);
+    setInBody(bBody, "Power", "0", false);
+
+    /* clone of the superweapon type */
+    var swBody = [];
+    if (swRange !== null) { swBody = bodyOf(lines, swRange); }
+
+    blocks.push("");
+    blocks.push("; ---- Sandbox Mod: extra superweapon, same art as " + name);
+    blocks.push("[" + cloneName + "]");
+    for (var b = 0; b < bBody.length; b++) { blocks.push(bBody[b]); }
+    blocks.push("");
+    blocks.push("[" + cloneSW + "]");
+    for (var w = 0; w < swBody.length; w++) { blocks.push(swBody[w]); }
+
+    if (bList !== null) {
+      inserts.push({ pos: bList.insertAt, text: (bList.max + 1 + made) + "=" + cloneName });
+    }
+    if (swList !== null) {
+      inserts.push({ pos: swList.insertAt, text: (swList.max + 1 + made) + "=" + cloneSW });
+    }
+    made++;
+  }
+
+  if (made === 0) { return; }
+
+  /* insert list entries from the bottom of the file upwards, so the positions
+     computed above stay valid */
+  inserts.sort(function (a, b) { return b.pos - a.pos; });
+  for (var k = 0; k < inserts.length; k++) {
+    lines.splice(inserts[k].pos, 0, inserts[k].text);
+  }
+  for (var z = 0; z < blocks.length; z++) { lines.push(blocks[z]); }
 }
 
 /* ------------------------------------------------------------------- prepare */
@@ -773,6 +885,7 @@ function menu(cfg, log) {
     log(" 21)  \u0414\u0438\u0430\u0433\u043D\u043E\u0441\u0442\u0438\u043A\u0430");
     log(" 22)  \u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0432\u0441\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438");
     log(" 23)  \u0420\u0435\u0436\u0438\u043C \u043F\u0440\u0430\u0432\u043E\u043A (\u0434\u043B\u044F \u043E\u0442\u043B\u0430\u0434\u043A\u0438) ... " + cfg.Patches);
+    log(" 24)  \u0412\u0442\u043E\u0440\u043E\u0439 \u043A\u043E\u043C\u043F\u043B\u0435\u043A\u0442 \u0441\u0443\u043F\u0435\u0440\u043E\u0440\u0443\u0436\u0438\u044F ... " + (lower(cfg.CloneSW) === "yes" ? "\u0414\u0410" : "\u043D\u0435\u0442"));
     log("  0)  \u0412\u044B\u0445\u043E\u0434");
     log("");
     if (lower(cfg.Patches) === "safe") {
@@ -814,6 +927,7 @@ function menu(cfg, log) {
       case 21: diagnostics(log); break;
       case 22: cfg = resetCfg(); break;
       case 23: cfg.Patches = cycle(cfg.Patches, ["full", "safe", "none"]); break;
+      case 24: cfg.CloneSW = toggle(cfg.CloneSW, "yes", "no"); break;
       case 0: running = false; break;
       default:
         log("\u041D\u0435 \u043F\u043E\u043D\u044F\u043B. \u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043D\u043E\u043C\u0435\u0440 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430.");
