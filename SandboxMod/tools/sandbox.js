@@ -199,6 +199,7 @@ var DEFAULTS = {
   Patches:         "full",      /* full | safe | none - how much to patch (for bug hunting) */
   KitCost:         "1500",      /* cost of the sandbox superweapon buildings */
   GameDir:         "",          /* optional override */
+  FA2Exe:          "",          /* path to FinalAlert2YR.exe (map editor) */
   CfgVer:          "0"          /* settings file format (used for migration) */
 };
 
@@ -285,7 +286,7 @@ function saveCfg(cfg) {
                "RevealMap", "BigBoom", "BuildSpeed", "SellRefund", "FairAI",
                "Money", "UnitCount", "TechLevel", "GameSpeed", "Crates",
                "ShortGame", "FogOfWar", "AIPlayers", "AIDifficulty", "CarpetNuke",
-               "Patches", "KitCost", "CfgVer", "GameDir"];
+               "Patches", "KitCost", "CfgVer", "GameDir", "FA2Exe"];
   var out = [];
   out.push("; Red Alert 2 Sandbox Mod - settings");
   out.push("; Can be edited by hand or from the mod menu (SandboxMod.bat).");
@@ -889,6 +890,58 @@ function sandboxSession(cfg, cmdLine, log, force) {
   return 0;
 }
 
+/* ---------------------------------------------------------- final alert 2 */
+/* Final Alert 2 is the official map editor shipped with the game. It reads
+   rules.ini / rulesmd.ini from the game folder, so the mod's rules have to be
+   installed while it runs - otherwise the editor shows a vanilla game and the
+   map it saves does not fit the mod. This mode installs the rules, starts the
+   editor, waits until it is closed and puts the original files back. */
+function findFA2(cfg, gdir) {
+  var custom = trim(String(cfg.FA2Exe || ""));
+  if (custom !== "") {
+    if (exists(custom)) { return custom; }
+    if (dirExists(custom)) { gdir = custom; }
+  }
+  var names = ["FinalAlert2YR.exe", "FinalAlert2.exe", "FinalAlert2YR_102.exe"];
+  var dirs = [gdir, join(gdir, "FA2"), join(gdir, "FinalAlert2"), join(MOD_DIR, "FA2")];
+  for (var d = 0; d < dirs.length; d++) {
+    for (var i = 0; i < names.length; i++) {
+      if (exists(join(dirs[d], names[i]))) { return join(dirs[d], names[i]); }
+    }
+  }
+  return null;
+}
+
+function fa2Session(cfg, log, force) {
+  var r = prepare(cfg, log, force);
+  if (!r.ok) { return 1; }
+  var exe = findFA2(cfg, r.dir);
+  if (exe === null) {
+    log("");
+    log("\u041d\u0435 \u043d\u0430\u0448\u0451\u043b FinalAlert2YR.exe \u2014 \u044d\u0442\u043e \u043e\u0444\u0438\u0446\u0438\u0430\u043b\u044c\u043d\u044b\u0439 \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440 \u043a\u0430\u0440\u0442 Final Alert 2.");
+    log("\u0412\u0430\u0440\u0438\u0430\u043d\u0442\u044b:");
+    log("  * " + "\u043f\u043e\u043b\u043e\u0436\u0438\u0442\u044c \u043f\u0430\u043f\u043a\u0443 \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440\u0430 \u0432 " + join(MOD_DIR, "FA2") + " (\u0432\u043d\u0443\u0442\u0440\u0438 \u043d\u0435\u0451 FinalAlert2YR.exe);");
+    log("  * " + "\u0438\u043b\u0438 \u0443\u043a\u0430\u0437\u0430\u0442\u044c \u043f\u0443\u0442\u044c \u043a exe \u0432 \u043e\u043a\u043d\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a, \u043f\u043e\u043b\u0435 \u00ab\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440 \u043a\u0430\u0440\u0442\u00bb;");
+    log("  * \u0438\u043b\u0438 \u0432\u043f\u0438\u0441\u0430\u0442\u044c \u0432 config\\sandbox.cfg \u0441\u0442\u0440\u043e\u043a\u0443 FA2Exe=C:\\...\\FinalAlert2YR.exe");
+    log("");
+    log("\u041f\u0440\u0430\u0432\u0438\u043b\u0430 \u043c\u043e\u0434\u0430 \u043f\u0440\u0438 \u044d\u0442\u043e\u043c \u0443\u0436\u0435 \u043b\u0435\u0436\u0430\u0442 \u0432 \u043f\u0430\u043f\u043a\u0435 \u0438\u0433\u0440\u044b: \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440, \u0437\u0430\u043f\u0443\u0449\u0435\u043d\u043d\u044b\u0439 \u0432\u0440\u0443\u0447\u043d\u0443\u044e,");
+    log("\u0443\u0432\u0438\u0434\u0438\u0442 \u0442\u0435 \u0436\u0435 \u044e\u043d\u0438\u0442\u044b \u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438. \u0417\u0430\u043a\u043e\u043d\u0447\u0438\u043b\u0438 - \u00ab\u0412\u0435\u0440\u043d\u0443\u0442\u044c \u0444\u0430\u0439\u043b\u044b \u0438\u0433\u0440\u044b\u00bb.");
+    return 1;
+  }
+  log("");
+  log("\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440 \u043a\u0430\u0440\u0442: " + exe);
+  log("\u041f\u0440\u0430\u0432\u0438\u043b\u0430 \u043c\u043e\u0434\u0430 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u044b, \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440 \u0432\u0438\u0434\u0438\u0442 \u0442\u0435 \u0436\u0435 \u044e\u043d\u0438\u0442\u044b \u0438 \u043f\u043e\u0441\u0442\u0440\u043e\u0439\u043a\u0438, \u0447\u0442\u043e \u0438 \u0438\u0433\u0440\u0430.");
+  log("\u041f\u043e\u0441\u043b\u0435 \u0437\u0430\u043a\u0440\u044b\u0442\u0438\u044f \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440\u0430 \u0444\u0430\u0439\u043b\u044b \u0438\u0433\u0440\u044b \u0432\u0435\u0440\u043d\u0443\u0442\u0441\u044f \u0432 \u0438\u0441\u0445\u043e\u0434\u043d\u043e\u0435 \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435.");
+  log("");
+  var rc = runAndWait(fso.GetParentFolderName(exe), '"' + exe + '"');
+  var st = restore(log, true);
+  log("");
+  log("\u0420\u0435\u0434\u0430\u043a\u0442\u043e\u0440 \u0437\u0430\u043a\u0440\u044b\u0442 (\u043a\u043e\u0434 " + rc + "). \u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u043e \u0444\u0430\u0439\u043b\u043e\u0432: " + st.restored +
+      ", \u0443\u0434\u0430\u043b\u0435\u043d\u043e: " + st.removed + ".");
+  if (LOG_PATH !== "") { log("\u041b\u043e\u0433 \u044d\u0442\u043e\u0439 \u0441\u0435\u0441\u0441\u0438\u0438: " + LOG_PATH); }
+  return 0;
+}
+
 /* ------------------------------------------------------------- self check */
 /* Re-reads the file that was just installed and checks the few things the mod is
    about. If something did not land, the session log says so instead of leaving
@@ -1339,6 +1392,7 @@ function main() {
     return made > 0 ? 0 : 1;
   }
   if (arg === "restart") { return restartSession(cfg, log, arg2); }
+  if (arg === "fa2" || arg === "editor") { return fa2Session(cfg, log, arg2); }
   if (arg === "diag") { return diagnostics(log); }
   if (arg === "uninstall") { return uninstall(log); }
 

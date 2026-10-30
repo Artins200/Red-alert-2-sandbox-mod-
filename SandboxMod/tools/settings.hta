@@ -160,6 +160,10 @@
     <div class="row"><input type="text" id="GameDir" style="width:98%"
         title="Оставьте пустым: мод берёт папку, в которой лежит SandboxMod"></div>
     <div class="hint">Пусто = папка, в которую положена папка SandboxMod.</div>
+    <div class="row" style="margin-top:8px">Редактор карт: <input type="text" id="FA2Exe" style="width:98%"
+        title="Путь к FinalAlert2YR.exe. Можно оставить пустым: мод поищет редактор в папке игры и в SandboxMod\FA2"></div>
+    <div class="hint">Final Alert 2 — официальный редактор карт. Кнопка «Редактор карт (FA2)» подложит
+    правила мода и запустит редактор, чтобы он видел те же юниты и постройки. См. docs\FA2.md.</div>
   </div>
 
 </td>
@@ -174,6 +178,7 @@
   <button onclick="save(true)">Только сохранить</button>
   <button onclick="runTool('diag')">Диагностика</button>
   <button onclick="openLog()">Показать лог</button>
+  <button onclick="openFA2()">Редактор карт (FA2)</button>
   <button onclick="runTool('export')">Экспорт правил (recomp)</button>
   <button onclick="runTool('restore')">Вернуть файлы игры</button>
   <button onclick="window.close()">Закрыть</button>
@@ -189,7 +194,7 @@ var sh  = new ActiveXObject("WScript.Shell");
 var KEYS = ["Target","SandboxSW","SWRecharge","Heroes","BonusBuildings","RevealMap",
             "BigBoom","BuildSpeed","SellRefund","FairAI","Money","UnitCount","TechLevel",
             "GameSpeed","Crates","ShortGame","FogOfWar","AIPlayers","AIDifficulty",
-            "CarpetNuke","Patches","KitCost","CfgVer","GameDir"];
+            "CarpetNuke","Patches","KitCost","CfgVer","GameDir","FA2Exe"];
 
 var DEFAULTS = {
   Target:"both", SandboxSW:"player", SWRecharge:"instant", Heroes:"normal",
@@ -197,7 +202,7 @@ var DEFAULTS = {
   SellRefund:"100", FairAI:"yes", Money:"40000", UnitCount:"10", TechLevel:"10",
   GameSpeed:"1", Crates:"yes", ShortGame:"no", FogOfWar:"no", AIPlayers:"2",
   AIDifficulty:"1", CarpetNuke:"6", Patches:"full", KitCost:"1500", CfgVer:"0",
-  GameDir:""
+  GameDir:"", FA2Exe:""
 };
 
 var MOD_DIR = "", CFG = "", JS = "", cfg = {};
@@ -414,6 +419,15 @@ function preset(key) {
 }
 
 
+
+/* Final Alert 2: правила подкладываются, редактор запускается, после закрытия
+   файлы игры возвращаются в исходное состояние. */
+function openFA2() {
+  collect();
+  if (!writeCfg()) { return; }
+  launch("fa2");
+  show("Редактор карт: правила мода подложены в папку игры, Final Alert 2 откроется через пару секунд.", true);
+}
 
 function runTool(mode) {
   collect();
