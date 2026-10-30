@@ -334,16 +334,25 @@ function applyPatches(lines, game, cfg) {
   var rt = swRechargeValue(lower(cfg.SWRecharge));
   if (rt === null) { rt = "0.05"; }
 
-  if (swMode === "all") {
+  if (swMode === "all" || swMode === "player") {
     for (i = 0; i < game.swBuildings.length; i++) {
       set(game.swBuildings[i], "BuildLimit", "-1");
       setIfPresent(game.swBuildings[i], "Power", "0");
+      if (swMode === "player") {
+        /* the AI's base planner never builds these buildings, so the buffed
+           superweapons stay in the player's hands. AIBuildThis is exactly the
+           flag the computer checks before adding a structure to its plan. */
+        setIfPresent(game.swBuildings[i], "AIBuildThis", "no");
+        if (intVal(cfg.KitCost, 0) > 0) {
+          setIfPresent(game.swBuildings[i], "Cost", String(intVal(cfg.KitCost, 1500)));
+        }
+      } else {
+        setIfPresent(game.swBuildings[i], "AIBuildThis", "yes");
+      }
     }
     for (i = 0; i < game.swSpecials.length; i++) {
       set(game.swSpecials[i], "RechargeTime", rt);
     }
-  } else if (swMode === "player") {
-    installSandboxSuperweapons(lines, game, cfg, rt, warn);
   }
 
   /* --- 3. heroes --------------------------------------------------------- */
@@ -431,6 +440,12 @@ function applyPatches(lines, game, cfg) {
     /* money cheats: 100% = no bonus, no free virtual ore purifiers */
     setIfPresent("General", "MultiplayerAICM", "100,100,100");
     setIfPresent("General", "AIVirtualPurifiers", "0,0,0");
+    /* AIHateDelays = frames before the computer picks an enemy, by difficulty
+       (hard, medium, easy). Vanilla 30,50,70; raising it gives the player time
+       to build up. This flag is read by the AI only. */
+    if (iniGet(lines, "General", "AIHateDelays") !== null) {
+      setIfPresent("General", "AIHateDelays", "60,100,140");
+    }
 
     /* Difficulty sections work "inverted" for the computer in skirmish:
        the human player always reads [Normal], the Brutal AI reads [Easy],
@@ -449,9 +464,10 @@ function applyPatches(lines, game, cfg) {
     iniSet(lines, "Easy", "BuildTime", "1.5", false);
     iniSet(lines, "Easy", "BuildDelay", ".3", false);
     iniSet(lines, "Easy", "RepairDelay", ".2", false);
-    iniSet(lines, "Normal", "BuildTime", "1.2", false);
-    iniSet(lines, "Normal", "BuildDelay", ".15", false);
-    iniSet(lines, "Normal", "RepairDelay", ".1", false);
+    /* [Normal] is deliberately left alone: it is the section the human player
+       reads in skirmish, so any BuildTime/BuildDelay/RepairDelay there slows
+       the player down as well (that is what happened in 1.4). Only [Easy] is
+       edited - in skirmish the human never reads it, the Brutal AI does. */
   }
 
   return warn;
@@ -485,105 +501,6 @@ function removeInBody(body, key) {
   }
 }
 
-/* keep the art of the original: if the section already points somewhere with
-   Image=, reuse that value; otherwise point at the section's own art. */
-function ensureImage(body, ownName) {
-  for (var i = 0; i < body.length; i++) {
-    if (/^\s*Image\s*=/i.test(body[i])) { return; }
-  }
-  body.push("Image=" + ownName);
-}
-
-function listInfo(lines, listName) {
-  var r = iniFindSection(lines, listName);
-  if (r === null) { return null; }
-  var max = 0, insertAt = r[1];
-  for (var i = r[0] + 1; i < r[1]; i++) {
-    var m = /^\s*(\d+)\s*=\s*(.+?)\s*$/.exec(lines[i]);
-    if (m) {
-      var n = parseInt(m[1], 10);
-      if (n > max) { max = n; }
-      insertAt = i + 1;
-    }
-  }
-  return { max: max, insertAt: insertAt };
-}
-
-function installSandboxSuperweapons(lines, game, cfg, rt, warn) {
-  var inserts = [];
-  var blocks = [];
-  var swList = listInfo(lines, "SuperWeaponTypes");
-  var bList = listInfo(lines, "BuildingTypes");
-  var cost = intVal(cfg.KitCost, 1500);
-  var made = 0;
-
-  for (var i = 0; i < game.swBuildings.length; i++) {
-    var name = game.swBuildings[i];
-    var range = iniFindSection(lines, name);
-    if (range === null) { warn.push("\u043D\u0435\u0442 \u0441\u0435\u043A\u0446\u0438\u0438 [" + name + "]"); continue; }
-
-    var cloneName = name + "SB";
-    if (iniFindSection(lines, cloneName) !== null) { continue; }
-
-    var swType = null;
-    for (var j = range[0] + 1; j < range[1]; j++) {
-      var m = /^\s*SuperWeapon\s*=\s*(\S+)/i.exec(lines[j]);
-      if (m) { swType = m[1]; break; }
-    }
-    if (swType === null) { continue; }
-
-    var cloneSW = swType + "SB";
-    var swRange = iniFindSection(lines, swType);
-
-    /* building: same art, same name, but the AI never builds it */
-    var bBody = bodyOf(lines, range);
-    setInBody(bBody, "SuperWeapon", cloneSW, true);
-    ensureImage(bBody, name);
-    setInBody(bBody, "AIBuildThis", "no", true);
-    setInBody(bBody, "BuildLimit", "-1", true);
-    setInBody(bBody, "Power", "0", false);
-    setInBody(bBody, "Cost", String(cost), false);
-    setInBody(bBody, "Adjacent", "2", false);
-
-    /* Give it its own label so it cannot be mixed up with the vanilla building
-       (the vanilla one keeps its 10 minute recharge). Dropping UIName makes the
-       game show the plain Name= text instead of the CSF string. */
-    var origLabel = "";
-    for (var q = 0; q < bBody.length; q++) {
-      var nm = /^\s*Name\s*=\s*(.*)$/i.exec(bBody[q]);
-      if (nm) { origLabel = trim(nm[1]); break; }
-    }
-    removeInBody(bBody, "UIName");
-    setInBody(bBody, "Name", "SANDBOX " + (origLabel === "" ? name : origLabel), false);
-
-    /* superweapon: instant recharge, own sidebar button */
-    var swBody = [];
-    if (swRange !== null) { swBody = bodyOf(lines, swRange); }
-    setInBody(swBody, "RechargeTime", rt, true);
-
-    blocks.push("");
-    blocks.push("; ---- Sandbox Mod: player-only superweapon (the AI does not build it)");
-    blocks.push("[" + cloneName + "]");
-    for (var b = 0; b < bBody.length; b++) { blocks.push(bBody[b]); }
-    blocks.push("");
-    blocks.push("[" + cloneSW + "]");
-    for (var w = 0; w < swBody.length; w++) { blocks.push(swBody[w]); }
-
-    if (bList !== null) {
-      inserts.push({ pos: bList.insertAt, text: (bList.max + 1 + made) + "=" + cloneName });
-    }
-    if (swList !== null) {
-      inserts.push({ pos: swList.insertAt, text: (swList.max + 1 + made) + "=" + cloneSW });
-    }
-    made++;
-  }
-
-  if (made === 0) { return; }
-
-  inserts.sort(function (a, b) { return b.pos - a.pos; });
-  for (var k = 0; k < inserts.length; k++) { lines.splice(inserts[k].pos, 0, inserts[k].text); }
-  for (var z = 0; z < blocks.length; z++) { lines.push(blocks[z]); }
-}
 
 /* ------------------------------------------------------------------- prepare */
 
@@ -1124,10 +1041,9 @@ function menu(cfg, log) {
     log("  \u043E\u0442 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 \u0438 \u0431\u043E\u0442 \u0438\u0445 \u043D\u0438\u043A\u043E\u0433\u0434\u0430 \u043D\u0435 \u0441\u0442\u0440\u043E\u0438\u0442 - \u0443 \u043D\u0435\u0433\u043E \u0432\u0441\u0451 \u043A\u0430\u043A \u0432 \u043E\u0440\u0438\u0433\u0438\u043D\u0430\u043B\u0435.");
     log("  \u0414\u0432\u0430 \u0431\u043E\u0442\u0430 \u0434\u0440\u0443\u0433 \u043F\u0440\u043E\u0442\u0438\u0432 \u0434\u0440\u0443\u0433\u0430: \u043F\u043E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 2 \u0418\u0418 + \u0441\u0435\u0431\u044F, \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435");
     log("  '\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432\u0441\u044E \u043A\u0430\u0440\u0442\u0443' \u0438 \u043D\u0435 \u0441\u0442\u0440\u043E\u0439\u0442\u0435 \u0431\u0430\u0437\u0443 - \u0431\u0443\u0434\u0435\u0442\u0435 \u043D\u0430\u0431\u043B\u044E\u0434\u0430\u0442\u0435\u043B\u0435\u043C.");
-    log("  \u0412 \u0441\u043f\u0438\u0441\u043a\u0435 \u043f\u043e\u0441\u0442\u0440\u043e\u0435\u043a \u043f\u0435\u0441\u043e\u0447\u043d\u044b\u0435 \u0437\u0434\u0430\u043d\u0438\u044f \u043f\u043e\u0434\u043f\u0438\u0441\u0430\u043d\u044b SANDBOX ... \u2014 \u0441\u0442\u0440\u043e\u0439\u0442\u0435 \u0438\u043c\u0435\u043d\u043d\u043e \u0438\u0445:");
-    log("  \u043e\u0431\u044b\u0447\u043d\u044b\u0435 \u044f\u0434\u0435\u0440\u043d\u0430\u044f \u0448\u0430\u0445\u0442\u0430 \u0438 \u0442.\u043f. \u043e\u0441\u0442\u0430\u043b\u0438\u0441\u044c \u0441 \u0437\u0430\u0440\u044f\u0434\u043a\u043e\u0439 10 \u043c\u0438\u043d\u0443\u0442, \u043a\u0430\u043a \u0432 \u0432\u0430\u043d\u0438\u043b\u0438.");
-    log("  \u0427\u0435\u0441\u0442\u043d\u044b\u0439 \u0418\u0418: \u0443 Brutal \u043e\u0442\u043e\u0431\u0440\u0430\u043d\u044b \u0434\u0435\u043d\u044c\u0433\u0438, \u0432\u0438\u0440\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0435 \u043e\u0447\u0438\u0441\u0442\u0438\u0442\u0435\u043b\u0438 \u0438 \u0431\u043e\u043d\u0443\u0441 \u043a \u0441\u0442\u0440\u0435\u043b\u044c\u0431\u0435,");
-    log("  \u0430 \u0435\u0433\u043e \u0441\u0442\u0440\u043e\u0438\u0442\u0435\u043b\u044c\u0441\u0442\u0432\u043e \u0441\u043f\u0435\u0446\u0438\u0430\u043b\u044c\u043d\u043e \u0437\u0430\u043c\u0435\u0434\u043b\u0435\u043d\u043e \u2014 \u0431\u044b\u0441\u0442\u0440\u0435\u0435 \u0440\u0430\u0437\u0432\u0438\u0432\u0430\u0435\u0442\u0435\u0441\u044c \u0442\u043e\u043b\u044c\u043a\u043e \u0432\u044b.");
+    log("  " + "\u0421\u0443\u043f\u0435\u0440\u043e\u0440\u0443\u0436\u0438\u0435: \u043b\u0438\u043c\u0438\u0442\u0430 \u043d\u0435\u0442, \u0437\u0430\u0440\u044f\u0434\u043a\u0430 ~0.5 \u0441\u0435\u043a, \u0430 \u0431\u043e\u0442 \u0435\u0433\u043e \u043d\u0435 \u0441\u0442\u0440\u043e\u0438\u0442 \u0441\u043e\u0432\u0441\u0435\u043c.");
+    log("  " + "\u0427\u0435\u0441\u0442\u043d\u044b\u0439 \u0418\u0418: \u0443 Brutal \u043e\u0442\u043e\u0431\u0440\u0430\u043d\u044b \u0434\u0435\u043d\u044c\u0433\u0438 \u0438 \u0431\u043e\u043d\u0443\u0441 \u043a \u0441\u0442\u0440\u0435\u043b\u044c\u0431\u0435; \u0432\u0430\u0441 \u044d\u0442\u043e \u043d\u0435 \u0437\u0430\u043c\u0435\u0434\u043b\u044f\u0435\u0442.");
+    log("  " + "\u0412\u0441\u0435 \u0433\u0430\u043b\u043e\u0447\u043a\u0438 \u0432 \u043e\u0434\u043d\u043e\u043c \u043e\u043a\u043d\u0435: \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u0435 Settings.bat.");
     log("");
 
     var answer = prompt(log, "\u0412\u044B\u0431\u043E\u0440 [1]: ");
@@ -1299,6 +1215,10 @@ function main() {
     var st = restore(log, false);
     log("\u0412\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043E: " + st.restored + ", \u0443\u0434\u0430\u043B\u0435\u043D\u043E: " + st.removed);
     return 0;
+  }
+  if (arg === "export") {
+    var made = exportRules(cfg, log);
+    return made > 0 ? 0 : 1;
   }
   if (arg === "diag") { return diagnostics(log); }
   if (arg === "uninstall") { return uninstall(log); }

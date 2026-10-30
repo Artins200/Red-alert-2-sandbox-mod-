@@ -1,0 +1,385 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=9">
+<title>Red Alert 2 Sandbox Mod - настройки</title>
+<hta:application id="sandbox" applicationname="RA2SandboxSettings" border="thin"
+    caption="yes" maximizebutton="no" minimizebutton="yes" scroll="yes"
+    singleinstance="yes" icon="explorer.exe" />
+<style type="text/css">
+  body { font-family: "Segoe UI", Tahoma, sans-serif; font-size: 13px; background: #1e1f22;
+         color: #e6e6e6; margin: 0; padding: 0; }
+  .hdr { background: #2b2d31; padding: 10px 14px; border-bottom: 2px solid #b71c1c; }
+  .hdr b { font-size: 16px; color: #fff; letter-spacing: 1px; }
+  .hdr .dir { color: #9aa0a6; font-size: 11px; margin-top: 3px; }
+  .wrap { padding: 10px 14px 14px 14px; }
+  table.cards { width: 100%; border-collapse: collapse; }
+  table.cards td { vertical-align: top; padding: 0; }
+  .card { background: #26282c; border: 1px solid #3a3d42; padding: 8px 10px; margin: 0 0 8px 0; }
+  .card h3 { margin: 0 0 6px 0; font-size: 12px; color: #8ab4f8; text-transform: uppercase;
+             letter-spacing: .5px; font-weight: 600; }
+  .row { margin: 3px 0; }
+  label { cursor: default; }
+  input[type=checkbox] { vertical-align: -2px; margin-right: 5px; }
+  select, input[type=text] { background: #1b1c1f; color: #e6e6e6; border: 1px solid #4a4d52;
+                             padding: 2px 4px; font-size: 12px; }
+  input[type=text] { width: 60px; }
+  .val { color: #9aa0a6; }
+  .btns { padding: 8px 14px 14px 14px; background: #2b2d31; border-top: 1px solid #3a3d42; }
+  button { background: #3a3d42; color: #fff; border: 1px solid #55585e; padding: 6px 12px;
+           font-size: 13px; cursor: pointer; margin: 0 6px 6px 0; }
+  button:hover { background: #4a4d52; }
+  button.play { background: #1b5e20; border-color: #2e7d32; font-weight: 600; }
+  button.play:hover { background: #2e7d32; }
+  button.preset { background: #37474f; }
+  .msg { margin: 8px 14px 0 14px; padding: 6px 10px; display: none; }
+  .ok { background: #1b5e20; }
+  .err { background: #7f1d1d; }
+  .hint { color: #9aa0a6; font-size: 11px; margin: 4px 0 0 0; }
+</style>
+</head>
+<body onload="init()">
+<div class="hdr">
+  <b>RED ALERT 2 :: SANDBOX MOD</b>
+  <div class="dir" id="gamedir">&nbsp;</div>
+</div>
+
+<div id="msg" class="msg"></div>
+
+<div class="wrap">
+<table class="cards"><tr>
+<td style="width:50%; padding-right:6px;">
+
+  <div class="card">
+    <h3>Быстрый выбор</h3>
+    <button class="preset" onclick="preset('player')">Песочница для игрока</button>
+    <button class="preset" onclick="preset('all')">Хардкор (плюшки всем)</button>
+    <button class="preset" onclick="preset('vanilla')">Ваниль (мод выключен)</button>
+    <div class="hint">Первый режим: супероружие и бонусы только вам, бот играет как в оригинале.</div>
+  </div>
+
+  <div class="card">
+    <h3>Супероружие</h3>
+    <div class="row">Кому:
+      <select id="SandboxSW">
+        <option value="player">только игроку (бот его не строит)</option>
+        <option value="all">всем, включая бота</option>
+        <option value="off">не трогать (как в ванили)</option>
+      </select></div>
+    <div class="row">Зарядка:
+      <select id="SWRecharge">
+        <option value="instant">instant (~0.5 секунды)</option>
+        <option value="fast">fast (1 минута)</option>
+        <option value="normal">normal (как в оригинале)</option>
+      </select></div>
+    <div class="row">Цена постройки: <input type="text" id="KitCost"> <span class="val">кредитов</span></div>
+  </div>
+
+  <div class="card">
+    <h3>Карта и взрывы</h3>
+    <div class="row"><label><input type="checkbox" id="RevealMap"> Открыть всю карту</label></div>
+    <div class="row"><label><input type="checkbox" id="BigBoom"> Большие взрывы / ковровая бомбёжка</label></div>
+    <div class="row">Ракет в линии:
+      <select id="CarpetNuke">
+        <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+        <option value="4">4</option><option value="6">6</option>
+      </select>
+      <span class="val">(в ванили 2; радиус не растёт — выше 11 движок падает)</span></div>
+    <div class="row">Возврат при продаже:
+      <select id="SellRefund"><option value="100">100 %</option><option value="50">50 % (ваниль)</option></select></div>
+  </div>
+
+  <div class="card">
+    <h3>ИИ</h3>
+    <div class="row"><label><input type="checkbox" id="FairAI"> Честный ИИ (без денег из воздуха)</label></div>
+    <div class="row">Сложность ботов:
+      <select id="AIDifficulty">
+        <option value="0">0 — легко</option>
+        <option value="1">1 — средне</option>
+        <option value="2">2 — Brutal</option>
+      </select></div>
+    <div class="row">Ботов на карте:
+      <select id="AIPlayers">
+        <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4">4</option><option value="5">5</option>
+      </select></div>
+  </div>
+
+</td>
+<td style="width:50%; padding-left:6px;">
+
+  <div class="card">
+    <h3>Скирмиш по умолчанию</h3>
+    <div class="row">Денег на старте:
+      <select id="Money">
+        <option value="10000">10 000</option><option value="20000">20 000</option>
+        <option value="40000">40 000</option><option value="80000">80 000</option>
+        <option value="100000">100 000</option>
+      </select></div>
+    <div class="row">Юнитов на старте:
+      <select id="UnitCount"><option value="1">1</option><option value="5">5</option><option value="10">10</option></select></div>
+    <div class="row">TechLevel:
+      <select id="TechLevel"><option value="1">1</option><option value="5">5</option><option value="10">10</option></select></div>
+    <div class="row">Скорость игры:
+      <select id="GameSpeed">
+        <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option>
+      </select></div>
+    <div class="row"><label><input type="checkbox" id="Crates"> Ящики</label></div>
+    <div class="row"><label><input type="checkbox" id="ShortGame"> Короткая игра (без базы — сразу конец)</label></div>
+    <div class="row"><label><input type="checkbox" id="FogOfWar"> Туман войны</label></div>
+  </div>
+
+  <div class="card">
+    <h3>Герои, стройка, патчи</h3>
+    <div class="row">Скорость строительства:
+      <select id="BuildSpeed">
+        <option value="normal">normal (ваниль — бот не ускоряется)</option>
+        <option value="fast">fast (быстрее у всех)</option>
+        <option value="instant">instant (мгновенно у всех)</option>
+      </select></div>
+    <div class="row"><label><input type="checkbox" id="Heroes"> Герои без лимита (и боту)</label></div>
+    <div class="row"><label><input type="checkbox" id="BonusBuildings"> Бонусные здания без лимита (и боту)</label></div>
+    <div class="row">Режим правок:
+      <select id="Patches">
+        <option value="full">full (всё включено)</option>
+        <option value="safe">safe (без карты/ИИ/взрывов — для отладки)</option>
+        <option value="none">none (ванильные правила)</option>
+      </select></div>
+    <div class="row">Ставить правила для:
+      <select id="Target">
+        <option value="both">обеих игр</option>
+        <option value="yr">только Yuri's Revenge</option>
+        <option value="ra2">только Red Alert 2</option>
+      </select></div>
+  </div>
+
+  <div class="card">
+    <h3>Папка игры (необязательно)</h3>
+    <div class="row"><input type="text" id="GameDir" style="width:98%"
+        title="Оставьте пустым: мод берёт папку, в которой лежит SandboxMod"></div>
+    <div class="hint">Пусто = папка, в которую положена папка SandboxMod.</div>
+  </div>
+
+</td>
+</tr></table>
+</div>
+
+<div class="btns">
+  <button class="play" onclick="play('yr')">Сохранить и играть: Yuri's Revenge</button>
+  <button class="play" onclick="play('ra2')">Сохранить и играть: Red Alert 2</button>
+  <button onclick="save(true)">Только сохранить</button>
+  <button onclick="runTool('diag')">Диагностика</button>
+  <button onclick="runTool('export')">Экспорт правил (recomp)</button>
+  <button onclick="runTool('restore')">Вернуть файлы игры</button>
+  <button onclick="window.close()">Закрыть</button>
+</div>
+
+<script type="text/javascript">
+var fso = new ActiveXObject("Scripting.FileSystemObject");
+var sh  = new ActiveXObject("WScript.Shell");
+
+var KEYS = ["Target","SandboxSW","SWRecharge","Heroes","BonusBuildings","RevealMap",
+            "BigBoom","BuildSpeed","SellRefund","FairAI","Money","UnitCount","TechLevel",
+            "GameSpeed","Crates","ShortGame","FogOfWar","AIPlayers","AIDifficulty",
+            "CarpetNuke","Patches","KitCost","CfgVer","GameDir"];
+
+var DEFAULTS = {
+  Target:"both", SandboxSW:"player", SWRecharge:"instant", Heroes:"normal",
+  BonusBuildings:"normal", RevealMap:"yes", BigBoom:"yes", BuildSpeed:"normal",
+  SellRefund:"100", FairAI:"yes", Money:"40000", UnitCount:"10", TechLevel:"10",
+  GameSpeed:"1", Crates:"yes", ShortGame:"no", FogOfWar:"no", AIPlayers:"2",
+  AIDifficulty:"1", CarpetNuke:"6", Patches:"full", KitCost:"1500", CfgVer:"0",
+  GameDir:""
+};
+
+var MOD_DIR = "", CFG = "", JS = "", cfg = {};
+
+function init() {
+  try {
+    var p = unescape(document.location.pathname);
+    if (p.charAt(0) === "/") { p = p.substring(1); }
+    if (p.charAt(1) !== ":") { p = "C:" + p; }
+    p = p.replace(/\//g, "\\");
+    var tools = fso.GetParentFolderName(p);
+    MOD_DIR = fso.GetParentFolderName(tools);
+    CFG = fso.BuildPath(fso.BuildPath(MOD_DIR, "config"), "sandbox.cfg");
+    JS  = fso.BuildPath(tools, "sandbox.js");
+  } catch (e) {
+    show("Не смог определить папку мода: " + e.message, false);
+    return;
+  }
+  document.getElementById("gamedir").innerHTML =
+      "Мод: " + MOD_DIR + "<br>Файл настроек: " + CFG;
+  load();
+  render();
+}
+
+function show(text, ok) {
+  var m = document.getElementById("msg");
+  m.className = "msg " + (ok ? "ok" : "err");
+  m.innerHTML = text;
+  m.style.display = "block";
+}
+
+function load() {
+  cfg = {};
+  for (var i = 0; i < KEYS.length; i++) { cfg[KEYS[i]] = DEFAULTS[KEYS[i]]; }
+  if (fso.FileExists(CFG)) {
+    var ts = fso.OpenTextFile(CFG, 1, false);
+    var text = ts.ReadAll(); ts.Close();
+    var lines = text.split(/\r\n|\n|\r/);
+    for (var j = 0; j < lines.length; j++) {
+      var raw = lines[j].replace(/^\s+|\s+$/g, "");
+      if (raw === "" || raw.charAt(0) === ";" || raw.charAt(0) === "#") { continue; }
+      var eq = raw.indexOf("=");
+      if (eq < 1) { continue; }
+      var k = raw.substring(0, eq).replace(/^\s+|\s+$/g, "");
+      var v = raw.substring(eq + 1).replace(/^\s+|\s+$/g, "");
+      for (var n = 0; n < KEYS.length; n++) {
+        if (KEYS[n].toLowerCase() === k.toLowerCase()) { cfg[KEYS[n]] = v; }
+      }
+    }
+  }
+  /* то же самое, что делает sandbox.js: старые файлы переводим на
+     "плюшки только игроку", иначе бот снова получит ускорение */
+  var ver = parseInt(cfg.CfgVer, 10);
+  if (!(ver >= 3)) {
+    if (fso.FileExists(CFG)) {
+      cfg.SandboxSW = "player"; cfg.Heroes = "normal"; cfg.BonusBuildings = "normal";
+      cfg.BuildSpeed = "normal"; cfg.FairAI = "yes"; cfg.AIDifficulty = "1";
+    }
+    cfg.CfgVer = "3";
+  }
+}
+
+function val(id, dflt) {
+  var v = cfg[id];
+  return (v === undefined || v === null || v === "") ? dflt : v;
+}
+
+var YES_NO = { RevealMap:1, BigBoom:1, FairAI:1, Crates:1, ShortGame:1, FogOfWar:1 };
+var INVERT = { Heroes:"unlimited", BonusBuildings:"unlimited" };
+
+/* IE не всегда отдаёт select.value, поэтому читаем/пишем через options */
+function readCtrl(el) {
+  if (el.options && el.options.length && el.selectedIndex >= 0) {
+    var o = el.options[el.selectedIndex];
+    if (o && o.value !== undefined && o.value !== null) { return String(o.value); }
+  }
+  return String(el.value);
+}
+
+function writeCtrl(el, v) {
+  var s = String(v);
+  if (el.options && el.options.length) {
+    for (var i = 0; i < el.options.length; i++) {
+      if (String(el.options[i].value) === s) { el.selectedIndex = i; break; }
+    }
+  }
+  el.value = s;
+}
+
+function render() {
+  for (var i = 0; i < KEYS.length; i++) {
+    var k = KEYS[i];
+    var el = document.getElementById(k);
+    if (!el) { continue; }
+    if (YES_NO[k]) {
+      el.checked = (String(val(k, "no")).toLowerCase() === "yes");
+    } else if (INVERT[k]) {
+      el.checked = (String(val(k, "normal")).toLowerCase() === INVERT[k]);
+    } else {
+      writeCtrl(el, val(k, DEFAULTS[k]));
+    }
+  }
+}
+
+function collect() {
+  for (var i = 0; i < KEYS.length; i++) {
+    var k = KEYS[i];
+    var el = document.getElementById(k);
+    if (!el) { continue; }
+    if (YES_NO[k]) {
+      cfg[k] = el.checked ? "yes" : "no";
+    } else if (INVERT[k]) {
+      cfg[k] = el.checked ? INVERT[k] : "normal";
+    } else {
+      cfg[k] = readCtrl(el);
+    }
+  }
+}
+
+function writeCfg() {
+  try {
+    var dir = fso.GetParentFolderName(CFG);
+    if (!fso.FolderExists(dir)) { fso.CreateFolder(dir); }
+    var out = ["; Red Alert 2 Sandbox Mod - settings",
+               "; Can be edited by hand or from the settings window (Settings.bat).",
+               "", "[Sandbox]"];
+    for (var i = 0; i < KEYS.length; i++) { out.push(KEYS[i] + "=" + cfg[KEYS[i]]); }
+    var ts = fso.CreateTextFile(CFG, true, false);
+    ts.Write(out.join("\r\n") + "\r\n");
+    ts.Close();
+    return true;
+  } catch (e) {
+    show("Не смог записать настройки: " + e.message, false);
+    return false;
+  }
+}
+
+function save(quiet) {
+  collect();
+  if (!writeCfg()) { return false; }
+  if (quiet) { show("Сохранено: " + CFG, true); }
+  return true;
+}
+
+function launch(mode) {
+  var cmd = 'cmd /c cscript //nologo "' + JS + '" ' + mode;
+  if (mode !== "run") { cmd += " & pause"; }
+  try {
+    sh.Run(cmd, 1, false);
+  } catch (e) {
+    show("Не смог запустить: " + e.message, false);
+  }
+}
+
+function preset(key) {
+  if (key === "vanilla") {
+    cfg.Patches = "none";
+  } else if (key === "all") {
+    cfg.Patches = "full"; cfg.SandboxSW = "all"; cfg.SWRecharge = "instant";
+    cfg.RevealMap = "yes"; cfg.BigBoom = "yes"; cfg.CarpetNuke = "6";
+    cfg.BuildSpeed = "instant"; cfg.Heroes = "unlimited";
+    cfg.BonusBuildings = "unlimited"; cfg.SellRefund = "100"; cfg.FairAI = "no";
+  } else {
+    cfg.Patches = "full"; cfg.SandboxSW = "player"; cfg.SWRecharge = "instant";
+    cfg.KitCost = "1500"; cfg.RevealMap = "yes"; cfg.BigBoom = "yes";
+    cfg.CarpetNuke = "6"; cfg.BuildSpeed = "normal"; cfg.Heroes = "normal";
+    cfg.BonusBuildings = "normal"; cfg.SellRefund = "100"; cfg.FairAI = "yes";
+    cfg.Money = "40000"; cfg.UnitCount = "10"; cfg.TechLevel = "10";
+    cfg.GameSpeed = "1"; cfg.ShortGame = "no"; cfg.FogOfWar = "no";
+    cfg.AIPlayers = "2"; cfg.AIDifficulty = "1";
+  }
+  render();
+  if (writeCfg()) { show("Пресет применён и сохранён.", true); }
+}
+
+/* Играть: правила ставятся только для выбранной игры, потом запускается игра */
+function play(which) {
+  collect();
+  cfg.Target = which;
+  if (!writeCfg()) { return; }
+  launch("run");
+}
+
+function runTool(mode) {
+  collect();
+  if (!writeCfg()) { return; }
+  launch(mode);
+}
+</script>
+</body>
+</html>
